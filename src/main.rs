@@ -1,6 +1,10 @@
+use std::collections::HashSet;
+
+use dolly::prelude::{Position, YawPitch};
+use glam::Vec3;
 use winit::{
     dpi::{PhysicalSize, Size},
-    event::{Event, VirtualKeyCode, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     platform::run_return::EventLoopExtRunReturn,
     window::WindowBuilder
@@ -19,12 +23,15 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let render_ctx = RenderCtx::new(&window);
+    let mut render_ctx = RenderCtx::new(&window);
 
     let mut frame_count = 0;
     let mut frame_index = 0;
 
+    let mut pressed_keys = HashSet::new();
     let mut running = true;
+
+    let delta_time = 1.0 / 165.0;
 
     while running {
         event_loop.run_return(|event, _, control_flow| {
@@ -40,6 +47,19 @@ fn main() {
                                     if key_code == VirtualKeyCode::Escape {
                                         running = false;
                                     }
+
+                                    match input.state {
+                                        ElementState::Pressed => {
+                                            if !pressed_keys.contains(&key_code) {
+                                                pressed_keys.insert(key_code);
+                                            }
+                                        }
+                                        ElementState::Released => {
+                                            if pressed_keys.contains(&key_code) {
+                                                pressed_keys.remove(&key_code);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             _ => {}
@@ -49,9 +69,44 @@ fn main() {
                 Event::MainEventsCleared => {
                     *control_flow = ControlFlow::Exit;
                 }
+                Event::DeviceEvent { event, .. } => {
+                    match event {
+                        DeviceEvent::MouseMotion { delta } => {
+                            let mut camera_rig = &mut render_ctx.camera_rig;
+                            camera_rig.driver_mut::<YawPitch>().rotate_yaw_pitch(0.3 * delta.0 as f32, 0.3 * delta.1 as f32);
+                            camera_rig.update(delta_time);
+                        }
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
         });
+
+        let mut delta_pos = Vec3::ZERO;
+        if pressed_keys.contains(&VirtualKeyCode::W) {
+            delta_pos += Vec3::new(0.0, 0.0, 1.0);
+        }
+        if pressed_keys.contains(&VirtualKeyCode::A) {
+            delta_pos += Vec3::new(-1.0, 0.0, 0.0);
+        }
+        if pressed_keys.contains(&VirtualKeyCode::S) {
+            delta_pos += Vec3::new(0.0, 0.0, -1.0);
+        }
+        if pressed_keys.contains(&VirtualKeyCode::D) {
+            delta_pos += Vec3::new(1.0, 0.0, 0.0);
+        }
+        delta_pos = render_ctx.camera_rig.final_transform.rotation * delta_pos;
+
+        if pressed_keys.contains(&VirtualKeyCode::Space) {
+            delta_pos += Vec3::new(0.0, 1.0, 0.0);
+        }
+        if pressed_keys.contains(&VirtualKeyCode::LShift) {
+            delta_pos += Vec3::new(0.0, -1.0, 0.0);
+        }
+
+        render_ctx.camera_rig.driver_mut::<Position>().translate(-delta_pos * delta_time * 10.0);
+        render_ctx.camera_rig.update(delta_time);
 
         renderer::render_frame(&render_ctx, &mut frame_index);
 

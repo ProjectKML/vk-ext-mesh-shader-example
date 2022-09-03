@@ -1,4 +1,4 @@
-use std::{mem::ManuallyDrop, slice, sync::Arc};
+use std::{mem, mem::ManuallyDrop, slice, sync::Arc};
 
 use ash::{
     extensions::{
@@ -7,6 +7,11 @@ use ash::{
     },
     vk, Device, Entry, Instance
 };
+use dolly::{
+    drivers::Position,
+    prelude::{CameraRig, Smooth, YawPitch}
+};
+use glam::{Mat4, Vec3};
 use winit::window::Window;
 
 use crate::render::{frame, frame::Frame, util};
@@ -28,6 +33,8 @@ pub struct RenderCtx {
     pub dynamic_rendering_loader: DynamicRendering,
     pub mesh_shader_loader: MeshShader,
 
+    pub allocator: vk_mem_alloc::Allocator,
+
     pub direct_queue: vk::Queue,
 
     pub swapchain: vk::SwapchainKHR,
@@ -37,7 +44,8 @@ pub struct RenderCtx {
     pub pipeline_layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
 
-    pub frames: Vec<ManuallyDrop<Frame>>
+    pub frames: Vec<ManuallyDrop<Frame>>,
+    pub camera_rig: CameraRig
 }
 
 impl RenderCtx {
@@ -88,6 +96,8 @@ impl RenderCtx {
         let dynamic_rendering_loader = DynamicRendering::new(&instance_loader, &device_loader);
         let mesh_shader_loader = MeshShader::new(&instance_loader, &device_loader);
 
+        let allocator = unsafe { vk_mem_alloc::create_allocator(&instance_loader, physical_device, &device_loader, None) }.unwrap();
+
         let direct_queue = unsafe { device_loader.get_device_queue(0, 0) };
 
         let swapchian_create_info = vk::SwapchainCreateInfoKHR::default()
@@ -121,7 +131,10 @@ impl RenderCtx {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        let pipeline_layout = unsafe { device_loader.create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default(), None) }.unwrap();
+        let push_constant_range = vk::PushConstantRange::default().stage_flags(vk::ShaderStageFlags::MESH_EXT).size(mem::size_of::<Mat4>() as _);
+        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default().push_constant_ranges(slice::from_ref(&push_constant_range));
+
+        let pipeline_layout = unsafe { device_loader.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap();
 
         let mesh_shader = util::create_shader_module(&device_loader, "example.mesh.spv").unwrap();
         let fragment_shader = util::create_shader_module(&device_loader, "example.frag.spv").unwrap();
@@ -132,6 +145,12 @@ impl RenderCtx {
         unsafe { device_loader.destroy_shader_module(mesh_shader, None) };
 
         let frames: Vec<_> = (0..frame::NUM_FRAMES).into_iter().map(|_| ManuallyDrop::new(Frame::new(device_loader.clone()))).collect();
+
+        let camera_rig = CameraRig::builder()
+            .with(Position::new(Vec3::Y))
+            .with(YawPitch::new())
+            .with(Smooth::new_position_rotation(1.0, 1.0))
+            .build();
 
         Self {
             entry_loader,
@@ -146,6 +165,8 @@ impl RenderCtx {
             dynamic_rendering_loader,
             mesh_shader_loader,
 
+            allocator,
+
             direct_queue,
 
             swapchain,
@@ -155,7 +176,8 @@ impl RenderCtx {
             pipeline_layout,
             pipeline,
 
-            frames
+            frames,
+            camera_rig
         }
     }
 }
@@ -172,6 +194,8 @@ impl Drop for RenderCtx {
 
             self.swapchain_image_views.iter().for_each(|image_view| self.device_loader.destroy_image_view(*image_view, None));
             self.swapchain_loader.destroy_swapchain(self.swapchain, None);
+
+            vk_mem_alloc::destroy_allocator(self.allocator);
 
             self.device_loader.destroy_device(None);
             self.surface_loader.destroy_surface(self.surface, None);

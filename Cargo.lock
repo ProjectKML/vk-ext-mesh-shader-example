@@ -296,6 +296,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dolly"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2ae35fe7c2f8550eb2e84dd8251cbaba660d167315daff50c800aee4013da32"
+dependencies = [
+ "glam",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -967,8 +976,21 @@ dependencies = [
  "anyhow",
  "ash",
  "ash-window",
+ "dolly",
  "glam",
+ "vk-mem-alloc",
  "winit",
+]
+
+[[package]]
+name = "vk-mem-alloc"
+version = "0.1.1"
+source = "git+https://github.com/projectkml/vk-mem-alloc-rs#374388741d2b11b2126d001ee3ce499a79b2b99e"
+dependencies = [
+ "ash",
+ "bitflags",
+ "cc",
+ "libc",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
-use std::slice;
+use std::{mem, slice};
 
 use ash::vk;
+use glam::{Mat4, Quat, Vec3};
 
 use crate::render::{
     frame::Frame,
@@ -130,6 +131,21 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
 
     unsafe { ctx.device_loader.cmd_set_viewport(command_buffer, 0, slice::from_ref(&viewport)) };
     unsafe { ctx.device_loader.cmd_set_scissor(command_buffer, 0, slice::from_ref(&scissor)) };
+
+    let final_transform = &ctx.camera_rig.final_transform;
+    let view_projection_matrix = Mat4::perspective_lh(90.0f32.to_radians(), 16.0 / 9.0, 0.1, 1000.0)
+        * Mat4::look_at_lh(final_transform.position, final_transform.position + final_transform.forward(), final_transform.up())
+        * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0));
+
+    unsafe {
+        ctx.device_loader.cmd_push_constants(
+            command_buffer,
+            ctx.pipeline_layout,
+            vk::ShaderStageFlags::MESH_EXT,
+            0,
+            slice::from_raw_parts(&view_projection_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
+        )
+    }
 
     unsafe { ctx.mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer, 1, 1, 1) };
 }
