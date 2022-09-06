@@ -72,7 +72,7 @@ fn main() {
                 Event::DeviceEvent { event, .. } => {
                     match event {
                         DeviceEvent::MouseMotion { delta } => {
-                            let mut camera_rig = &mut render_ctx.camera_rig;
+                            let camera_rig = &mut render_ctx.camera_rig;
                             camera_rig.driver_mut::<YawPitch>().rotate_yaw_pitch(0.3 * delta.0 as f32, 0.3 * delta.1 as f32);
                             camera_rig.update(delta_time);
                         }
@@ -105,8 +105,9 @@ fn main() {
             delta_pos += Vec3::new(0.0, -1.0, 0.0);
         }
 
-        render_ctx.camera_rig.driver_mut::<Position>().translate(-delta_pos * delta_time * 10.0);
-        render_ctx.camera_rig.update(delta_time);
+        let camera_rig = &mut render_ctx.camera_rig;
+        camera_rig.driver_mut::<Position>().translate(-delta_pos * delta_time * 10.0);
+        camera_rig.update(delta_time);
 
         renderer::render_frame(&render_ctx, &mut frame_index);
 

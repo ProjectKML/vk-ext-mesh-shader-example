@@ -5,7 +5,7 @@ use glam::{Mat4, Quat, Vec3};
 
 use crate::render::{
     frame::Frame,
-    render_ctx::{RenderCtx, HEIGHT, WIDTH}
+    render_ctx::{RenderCtx, FIELD_OF_VIEW, HEIGHT, WIDTH}
 };
 
 pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
@@ -133,9 +133,13 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
     unsafe { ctx.device_loader.cmd_set_scissor(command_buffer, 0, slice::from_ref(&scissor)) };
 
     let final_transform = &ctx.camera_rig.final_transform;
-    let view_projection_matrix = Mat4::perspective_lh(90.0f32.to_radians(), 16.0 / 9.0, 0.1, 1000.0)
+
+    let translation_matrix = Mat4::from_translation(Vec3::new(0.0, 1.0, -3.0));
+
+    let view_projection_matrix = Mat4::perspective_lh(FIELD_OF_VIEW.to_radians(), WIDTH as f32 / HEIGHT as f32, 0.1, 1000.0)
         * Mat4::look_at_lh(final_transform.position, final_transform.position + final_transform.forward(), final_transform.up())
-        * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0));
+        * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0))
+        * translation_matrix;
 
     unsafe {
         ctx.device_loader.cmd_push_constants(
@@ -147,5 +151,19 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
         )
     }
 
-    unsafe { ctx.mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer, 1, 1, 1) };
+    unsafe {
+        ctx.device_loader.cmd_bind_descriptor_sets(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            ctx.pipeline_layout,
+            0,
+            slice::from_ref(&ctx.mesh_buffers.descriptor_set),
+            &[]
+        );
+    }
+
+    unsafe {
+        ctx.mesh_shader_loader
+            .cmd_draw_mesh_tasks(command_buffer, ((ctx.mesh_buffers.meshlet_buffer.size + 31) >> 5) as u32, 1, 1)
+    };
 }

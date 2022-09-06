@@ -1,7 +1,16 @@
 use std::{ffi::CString, fs::File, io::Read, path::Path, slice};
 
 use anyhow::Result;
-use ash::{vk, Device};
+use ash::{prelude::VkResult, vk, Device};
+
+pub unsafe fn create_descriptor_pool(device: &Device, pool_sizes: &[vk::DescriptorPoolSize]) -> VkResult<vk::DescriptorPool> {
+    device.create_descriptor_pool(
+        &vk::DescriptorPoolCreateInfo::default()
+            .max_sets(pool_sizes.iter().map(|pool_size| pool_size.descriptor_count).sum())
+            .pool_sizes(pool_sizes),
+        None
+    )
+}
 
 pub fn create_shader_module(device: &Device, path: impl AsRef<Path>) -> Result<vk::ShaderModule> {
     let mut file = File::open(path)?;

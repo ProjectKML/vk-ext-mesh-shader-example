@@ -14,11 +14,12 @@ use dolly::{
 use glam::{Mat4, Vec3};
 use winit::window::Window;
 
-use crate::render::{frame, frame::Frame, util};
+use crate::render::{frame, frame::Frame, mesh::MeshBuffers, util};
 
 pub const WIDTH: u32 = 1600;
 pub const HEIGHT: u32 = 900;
 pub const SWAPCHAIN_FORMAT: vk::Format = vk::Format::B8G8R8A8_UNORM;
+pub const FIELD_OF_VIEW: f32 = 90.0;
 
 pub struct RenderCtx {
     pub entry_loader: Entry,
@@ -41,11 +42,14 @@ pub struct RenderCtx {
     pub swapchain_images: Vec<vk::Image>,
     pub swapchain_image_views: Vec<vk::ImageView>,
 
+    pub descriptor_pool: vk::DescriptorPool,
+    pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub pipeline_layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
 
     pub frames: Vec<ManuallyDrop<Frame>>,
-    pub camera_rig: CameraRig
+    pub camera_rig: CameraRig,
+    pub mesh_buffers: ManuallyDrop<MeshBuffers>
 }
 
 impl RenderCtx {
@@ -131,9 +135,15 @@ impl RenderCtx {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        let push_constant_range = vk::PushConstantRange::default().stage_flags(vk::ShaderStageFlags::MESH_EXT).size(mem::size_of::<Mat4>() as _);
-        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default().push_constant_ranges(slice::from_ref(&push_constant_range));
+        let descriptor_pool =
+            unsafe { util::create_descriptor_pool(&device_loader, &[vk::DescriptorPoolSize::default().ty(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(3)]) }.unwrap();
 
+        let descriptor_set_layout = unsafe { MeshBuffers::create_descriptor_set_layout(&device_loader) }.unwrap();
+        let push_constant_range = vk::PushConstantRange::default().stage_flags(vk::ShaderStageFlags::MESH_EXT).size(mem::size_of::<Mat4>() as _);
+
+        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(slice::from_ref(&descriptor_set_layout))
+            .push_constant_ranges(slice::from_ref(&push_constant_range));
         let pipeline_layout = unsafe { device_loader.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap();
 
         let mesh_shader = util::create_shader_module(&device_loader, "example.mesh.spv").unwrap();
@@ -151,6 +161,8 @@ impl RenderCtx {
             .with(YawPitch::new())
             .with(Smooth::new_position_rotation(1.0, 1.0))
             .build();
+
+        let mesh_buffers = ManuallyDrop::new(unsafe { MeshBuffers::new(device_loader.clone(), direct_queue, allocator, descriptor_pool, descriptor_set_layout, "dragon.obj") }.unwrap());
 
         Self {
             entry_loader,
@@ -173,11 +185,14 @@ impl RenderCtx {
             swapchain_images,
             swapchain_image_views,
 
+            descriptor_pool,
+            descriptor_set_layout,
             pipeline_layout,
             pipeline,
 
             frames,
-            camera_rig
+            camera_rig,
+            mesh_buffers
         }
     }
 }
@@ -187,10 +202,14 @@ impl Drop for RenderCtx {
         unsafe {
             self.device_loader.device_wait_idle().unwrap();
 
+            ManuallyDrop::drop(&mut self.mesh_buffers);
             self.frames.iter_mut().for_each(|frame| ManuallyDrop::drop(frame));
 
             self.device_loader.destroy_pipeline(self.pipeline, None);
             self.device_loader.destroy_pipeline_layout(self.pipeline_layout, None);
+
+            self.device_loader.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            self.device_loader.destroy_descriptor_pool(self.descriptor_pool, None);
 
             self.swapchain_image_views.iter().for_each(|image_view| self.device_loader.destroy_image_view(*image_view, None));
             self.swapchain_loader.destroy_swapchain(self.swapchain, None);
