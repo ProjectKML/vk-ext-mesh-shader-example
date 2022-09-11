@@ -1,4 +1,8 @@
-use std::{mem, slice};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    mem, slice
+};
 
 use ash::vk;
 use glam::{Mat4, Quat, Vec3};
@@ -70,10 +74,20 @@ pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
             }
         });
 
+    let depth_attachment = vk::RenderingAttachmentInfo::default()
+        .image_view(ctx.depth_image_view)
+        .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .clear_value(vk::ClearValue {
+            depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 }
+        });
+
     let rendering_info = vk::RenderingInfo::default()
         .render_area(vk::Rect2D::default().extent(vk::Extent2D::default().width(WIDTH).height(HEIGHT)))
         .layer_count(1)
-        .color_attachments(slice::from_ref(&color_attachment));
+        .color_attachments(slice::from_ref(&color_attachment))
+        .depth_attachment(&depth_attachment);
 
     unsafe { dynamic_rendering_loader.cmd_begin_rendering(command_buffer, &rendering_info) };
 
@@ -134,22 +148,12 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
 
     let final_transform = &ctx.camera_rig.final_transform;
 
-    let translation_matrix = Mat4::from_translation(Vec3::new(0.0, 1.0, -3.0));
+    let mut projection_matrix = Mat4::perspective_lh(FIELD_OF_VIEW.to_radians(), WIDTH as f32 / HEIGHT as f32, 0.1, 1000.0);
+    projection_matrix.y_axis.y *= -1.0;
 
-    let view_projection_matrix = Mat4::perspective_lh(FIELD_OF_VIEW.to_radians(), WIDTH as f32 / HEIGHT as f32, 0.1, 1000.0)
+    let view_projection_matrix = projection_matrix
         * Mat4::look_at_lh(final_transform.position, final_transform.position + final_transform.forward(), final_transform.up())
-        * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0))
-        * translation_matrix;
-
-    unsafe {
-        ctx.device_loader.cmd_push_constants(
-            command_buffer,
-            ctx.pipeline_layout,
-            vk::ShaderStageFlags::MESH_EXT,
-            0,
-            slice::from_raw_parts(&view_projection_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
-        )
-    }
+        * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0));
 
     unsafe {
         ctx.device_loader.cmd_bind_descriptor_sets(
@@ -162,8 +166,41 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
         );
     }
 
+    for i in 0..7 {
+        for j in 0..13 {
+            let angle = {
+                let mut hasher = DefaultHasher::new();
+                (i * 1128889).hash(&mut hasher);
+                (j * 1254739).hash(&mut hasher);
+
+                let hash_code = hasher.finish();
+                (hash_code & 255) as f32 / 255.0 * std::f32::consts::PI
+            };
+
+            let translation_matrix = Mat4::from_rotation_y(angle) * Mat4::from_translation(Vec3::new(i as f32 * 7.0, 0.0, j as f32 * 5.0));
+
+            render_mesh(ctx, current_frame, &view_projection_matrix, &translation_matrix);
+        }
+    }
+
+    render_mesh(ctx, current_frame, &view_projection_matrix, &Mat4::IDENTITY);
+}
+
+fn render_mesh(ctx: &RenderCtx, current_frame: &Frame, view_projection_matrix: &Mat4, translation_matrix: &Mat4) {
+    let command_buffer = current_frame.command_buffer;
+
+    let mvp_matrix = *view_projection_matrix * *translation_matrix;
+
     unsafe {
+        ctx.device_loader.cmd_push_constants(
+            command_buffer,
+            ctx.pipeline_layout,
+            vk::ShaderStageFlags::MESH_EXT,
+            0,
+            slice::from_raw_parts(&mvp_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
+        );
+
         ctx.mesh_shader_loader
-            .cmd_draw_mesh_tasks(command_buffer, ((ctx.mesh_buffers.meshlet_buffer.size + 31) >> 5) as u32, 1, 1)
-    };
+            .cmd_draw_mesh_tasks(command_buffer, ((ctx.mesh_buffers.num_meshlets * 32 + 31) >> 5) as u32, 1, 1)
+    }
 }

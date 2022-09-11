@@ -12,6 +12,7 @@ use dolly::{
     prelude::{CameraRig, Smooth, YawPitch}
 };
 use glam::{Mat4, Vec3};
+use vk_mem_alloc::Allocation;
 use winit::window::Window;
 
 use crate::render::{frame, frame::Frame, mesh::MeshBuffers, util};
@@ -19,6 +20,7 @@ use crate::render::{frame, frame::Frame, mesh::MeshBuffers, util};
 pub const WIDTH: u32 = 1600;
 pub const HEIGHT: u32 = 900;
 pub const SWAPCHAIN_FORMAT: vk::Format = vk::Format::B8G8R8A8_UNORM;
+pub const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 pub const FIELD_OF_VIEW: f32 = 90.0;
 
 pub struct RenderCtx {
@@ -41,6 +43,9 @@ pub struct RenderCtx {
     pub swapchain: vk::SwapchainKHR,
     pub swapchain_images: Vec<vk::Image>,
     pub swapchain_image_views: Vec<vk::ImageView>,
+    pub depth_image: vk::Image,
+    pub depth_image_view: vk::ImageView,
+    pub depth_image_allocation: Allocation,
 
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
@@ -104,7 +109,7 @@ impl RenderCtx {
 
         let direct_queue = unsafe { device_loader.get_device_queue(0, 0) };
 
-        let swapchian_create_info = vk::SwapchainCreateInfoKHR::default()
+        let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface)
             .min_image_count(2)
             .image_format(SWAPCHAIN_FORMAT)
@@ -117,7 +122,7 @@ impl RenderCtx {
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(vk::PresentModeKHR::FIFO);
 
-        let swapchain = unsafe { swapchain_loader.create_swapchain(&swapchian_create_info, None) }.unwrap();
+        let swapchain = unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }.unwrap();
         let swapchain_images = unsafe { swapchain_loader.get_swapchain_images(swapchain) }.unwrap();
 
         let swapchain_image_views = swapchain_images
@@ -135,6 +140,8 @@ impl RenderCtx {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
+        let (depth_image, depth_image_allocation, depth_image_view) = unsafe { util::create_depth_stencil_image(&device_loader, allocator, WIDTH, HEIGHT, DEPTH_FORMAT) }.unwrap();
+
         let descriptor_pool =
             unsafe { util::create_descriptor_pool(&device_loader, &[vk::DescriptorPoolSize::default().ty(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(3)]) }.unwrap();
 
@@ -149,7 +156,7 @@ impl RenderCtx {
         let mesh_shader = util::create_shader_module(&device_loader, "example.mesh.spv").unwrap();
         let fragment_shader = util::create_shader_module(&device_loader, "example.frag.spv").unwrap();
 
-        let pipeline = unsafe { util::create_mesh_pipeline(&device_loader, mesh_shader, "main", fragment_shader, "main", SWAPCHAIN_FORMAT, pipeline_layout) }.unwrap();
+        let pipeline = unsafe { util::create_mesh_pipeline(&device_loader, mesh_shader, "main", fragment_shader, "main", SWAPCHAIN_FORMAT, DEPTH_FORMAT, pipeline_layout) }.unwrap();
 
         unsafe { device_loader.destroy_shader_module(fragment_shader, None) };
         unsafe { device_loader.destroy_shader_module(mesh_shader, None) };
@@ -184,6 +191,9 @@ impl RenderCtx {
             swapchain,
             swapchain_images,
             swapchain_image_views,
+            depth_image,
+            depth_image_view,
+            depth_image_allocation,
 
             descriptor_pool,
             descriptor_set_layout,
@@ -211,6 +221,7 @@ impl Drop for RenderCtx {
             self.device_loader.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             self.device_loader.destroy_descriptor_pool(self.descriptor_pool, None);
 
+            util::destroy_depth_stencil_image(&self.device_loader, self.allocator, self.depth_image, self.depth_image_allocation, self.depth_image_view);
             self.swapchain_image_views.iter().for_each(|image_view| self.device_loader.destroy_image_view(*image_view, None));
             self.swapchain_loader.destroy_swapchain(self.swapchain, None);
 

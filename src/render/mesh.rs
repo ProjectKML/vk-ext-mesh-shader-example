@@ -90,7 +90,7 @@ impl Mesh {
         let mut indices = meshopt::remap_index_buffer(None, indices.len(), &remap);
 
         meshopt::optimize_vertex_cache_in_place(&mut indices, vertices.len());
-        //meshopt::optimize_overdraw_in_place(&mut indices, &VertexDataAdapter::new(bytemuck::cast_slice(&vertices), mem::size_of::<Vertex>(), 0)?, 1.01);
+        meshopt::optimize_overdraw_in_place(&mut indices, &VertexDataAdapter::new(bytemuck::cast_slice(&vertices), mem::size_of::<Vertex>(), 0)?, 1.01);
         meshopt::optimize_vertex_fetch_in_place(&mut indices, &mut vertices);
 
         let meshlets = meshopt::build_meshlets(
@@ -139,6 +139,7 @@ pub struct MeshBuffers {
     pub vertex_buffer: Buffer,
     pub meshlet_buffer: Buffer,
     pub meshlet_data_buffer: Buffer,
+    pub num_meshlets: usize,
     pub descriptor_set: vk::DescriptorSet
 }
 
@@ -190,6 +191,7 @@ impl MeshBuffers {
             vertex_buffer,
             meshlet_buffer,
             meshlet_data_buffer,
+            num_meshlets: mesh.meshlets.len(),
             descriptor_set
         })
     }

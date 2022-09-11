@@ -66,7 +66,7 @@ impl Buffer {
             buffer,
             allocation,
             allocation_info,
-            size: data.len() as _,
+            size: size as _,
             _device: device,
             allocator
         })

@@ -7,7 +7,7 @@ use winit::{
     event::{DeviceEvent, ElementState, Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     platform::run_return::EventLoopExtRunReturn,
-    window::WindowBuilder
+    window::{CursorGrabMode, WindowBuilder}
 };
 
 use crate::render::{render_ctx::RenderCtx, renderer};
@@ -19,9 +19,11 @@ fn main() {
     let window = WindowBuilder::new()
         .with_title("vk-ext-mesh-shader-example")
         .with_inner_size(Size::Physical(PhysicalSize::new(1600, 900)))
-        .with_resizable(false)
         .build(&event_loop)
         .unwrap();
+
+    window.set_cursor_visible(false);
+    window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
 
     let mut render_ctx = RenderCtx::new(&window);
 
@@ -70,13 +72,10 @@ fn main() {
                     *control_flow = ControlFlow::Exit;
                 }
                 Event::DeviceEvent { event, .. } => {
-                    match event {
-                        DeviceEvent::MouseMotion { delta } => {
-                            let camera_rig = &mut render_ctx.camera_rig;
-                            camera_rig.driver_mut::<YawPitch>().rotate_yaw_pitch(0.3 * delta.0 as f32, 0.3 * delta.1 as f32);
-                            camera_rig.update(delta_time);
-                        }
-                        _ => {}
+                    if let DeviceEvent::MouseMotion { delta } = event {
+                        let camera_rig = &mut render_ctx.camera_rig;
+                        camera_rig.driver_mut::<YawPitch>().rotate_yaw_pitch(0.3 * delta.0 as f32, -0.3 * delta.1 as f32);
+                        camera_rig.update(delta_time);
                     }
                 }
                 _ => {}
@@ -99,10 +98,10 @@ fn main() {
         delta_pos = render_ctx.camera_rig.final_transform.rotation * delta_pos;
 
         if pressed_keys.contains(&VirtualKeyCode::Space) {
-            delta_pos += Vec3::new(0.0, 1.0, 0.0);
+            delta_pos += Vec3::new(0.0, -1.0, 0.0);
         }
         if pressed_keys.contains(&VirtualKeyCode::LShift) {
-            delta_pos += Vec3::new(0.0, -1.0, 0.0);
+            delta_pos += Vec3::new(0.0, 1.0, 0.0);
         }
 
         let camera_rig = &mut render_ctx.camera_rig;

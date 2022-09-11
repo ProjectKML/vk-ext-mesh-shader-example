@@ -2,6 +2,7 @@ use std::{ffi::CString, fs::File, io::Read, path::Path, slice};
 
 use anyhow::Result;
 use ash::{prelude::VkResult, vk, Device};
+use vk_mem_alloc::{Allocation, AllocationCreateInfo, Allocator, MemoryUsage};
 
 pub unsafe fn create_descriptor_pool(device: &Device, pool_sizes: &[vk::DescriptorPoolSize]) -> VkResult<vk::DescriptorPool> {
     device.create_descriptor_pool(
@@ -32,6 +33,7 @@ pub unsafe fn create_mesh_pipeline(
     fragment_shader: vk::ShaderModule,
     fragment_entry_point: &str,
     swapchain_format: vk::Format,
+    depth_format: vk::Format,
     layout: vk::PipelineLayout
 ) -> Result<vk::Pipeline> {
     let mesh_entry_point = CString::new(mesh_entry_point).unwrap();
@@ -58,7 +60,7 @@ pub unsafe fn create_mesh_pipeline(
         .viewports(slice::from_ref(&viewport))
         .scissors(slice::from_ref(&scissor));
 
-    let rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo::default().line_width(1.0);
+    let rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo::default();
 
     let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
         .depth_test_enable(true)
@@ -74,7 +76,9 @@ pub unsafe fn create_mesh_pipeline(
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
     let dynamic_state_create_info = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
-    let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo::default().color_attachment_formats(slice::from_ref(&swapchain_format));
+    let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo::default()
+        .color_attachment_formats(slice::from_ref(&swapchain_format))
+        .depth_attachment_format(depth_format);
 
     let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
         .stages(&shader_stage_create_infos)
@@ -91,4 +95,45 @@ pub unsafe fn create_mesh_pipeline(
     Ok(device
         .create_graphics_pipelines(vk::PipelineCache::null(), slice::from_ref(&graphics_pipeline_create_info), None)
         .unwrap()[0])
+}
+
+pub unsafe fn create_depth_stencil_image(device: &Device, allocator: Allocator, width: u32, height: u32, format: vk::Format) -> VkResult<(vk::Image, Allocation, vk::ImageView)> {
+    let (image, allocation, _) = vk_mem_alloc::create_image(
+        allocator,
+        &vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::D32_SFLOAT)
+            .extent(vk::Extent3D { width, height, depth: 1 })
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
+            .initial_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+        &AllocationCreateInfo {
+            usage: MemoryUsage::AUTO_PREFER_DEVICE,
+            ..Default::default()
+        }
+    )?;
+
+    let mut aspect_mask = vk::ImageAspectFlags::DEPTH;
+    if format == vk::Format::D16_UNORM_S8_UINT || format == vk::Format::D24_UNORM_S8_UINT || format == vk::Format::D32_SFLOAT_S8_UINT {
+        aspect_mask |= vk::ImageAspectFlags::STENCIL;
+    }
+
+    let image_view = device.create_image_view(
+        &vk::ImageViewCreateInfo::default()
+            .image(image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(format)
+            .components(Default::default())
+            .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(aspect_mask).level_count(1).layer_count(1)),
+        None
+    )?;
+
+    Ok((image, allocation, image_view))
+}
+
+pub unsafe fn destroy_depth_stencil_image(device: &Device, allocator: Allocator, image: vk::Image, allocation: Allocation, image_view: vk::ImageView) {
+    vk_mem_alloc::destroy_image(allocator, image, allocation);
+    device.destroy_image_view(image_view, None);
 }
