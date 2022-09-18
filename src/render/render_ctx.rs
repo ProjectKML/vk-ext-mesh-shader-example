@@ -3,7 +3,7 @@ use std::{mem, mem::ManuallyDrop, slice, sync::Arc};
 use ash::{
     extensions::{
         ext::MeshShader,
-        khr::{DynamicRendering, Surface, Swapchain}
+        khr::{Surface, Swapchain}
     },
     vk, Device, Entry, Instance
 };
@@ -33,7 +33,6 @@ pub struct RenderCtx {
 
     pub device_loader: Arc<Device>,
     pub swapchain_loader: Swapchain,
-    pub dynamic_rendering_loader: DynamicRendering,
     pub mesh_shader_loader: MeshShader,
 
     pub allocator: vk_mem_alloc::Allocator,
@@ -61,7 +60,7 @@ impl RenderCtx {
     pub fn new(window: &Window) -> Self {
         let entry_loader = unsafe { Entry::load() }.unwrap();
 
-        let application_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
+        let application_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
 
         let instance_layers = [b"VK_LAYER_KHRONOS_validation\0".as_ptr().cast()];
 
@@ -84,18 +83,18 @@ impl RenderCtx {
         let queue_priority = 1.0;
         let device_queue_create_info = vk::DeviceQueueCreateInfo::default().queue_priorities(slice::from_ref(&queue_priority));
 
-        let device_extensions = [Swapchain::name().as_ptr(), DynamicRendering::name().as_ptr(), MeshShader::name().as_ptr()];
+        let device_extensions = [Swapchain::name().as_ptr(), MeshShader::name().as_ptr()];
 
         let physical_device_features = vk::PhysicalDeviceFeatures::default();
 
         let mut physical_device_vulkan_12_features = vk::PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
-        let mut physical_device_dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
+        let mut physical_device_vulkan_13_features = vk::PhysicalDeviceVulkan13Features::default().dynamic_rendering(true).synchronization2(true);
         let mut physical_device_mesh_shader_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default().mesh_shader(true);
 
         let mut physical_device_features = vk::PhysicalDeviceFeatures2::default()
             .features(physical_device_features)
             .push_next(&mut physical_device_vulkan_12_features)
-            .push_next(&mut physical_device_dynamic_rendering_features)
+            .push_next(&mut physical_device_vulkan_13_features)
             .push_next(&mut physical_device_mesh_shader_features);
 
         let device_create_info = vk::DeviceCreateInfo::default()
@@ -104,7 +103,6 @@ impl RenderCtx {
             .enabled_extension_names(&device_extensions);
         let device_loader = Arc::new(unsafe { instance_loader.create_device(physical_device, &device_create_info, None) }.unwrap());
         let swapchain_loader = Swapchain::new(&instance_loader, &device_loader);
-        let dynamic_rendering_loader = DynamicRendering::new(&instance_loader, &device_loader);
         let mesh_shader_loader = MeshShader::new(&instance_loader, &device_loader);
 
         let allocator = unsafe {
@@ -217,7 +215,6 @@ impl RenderCtx {
 
             device_loader,
             swapchain_loader,
-            dynamic_rendering_loader,
             mesh_shader_loader,
 
             allocator,

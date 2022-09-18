@@ -15,7 +15,6 @@ use crate::render::{
 pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
     let device_loader = &ctx.device_loader;
     let swapchain_loader = &ctx.swapchain_loader;
-    let dynamic_rendering_loader = &ctx.dynamic_rendering_loader;
 
     let direct_queue = ctx.direct_queue;
     let swapchain = ctx.swapchain;
@@ -44,24 +43,18 @@ pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
 
     let image = ctx.swapchain_images[image_index as usize];
 
-    let image_memory_barrier = vk::ImageMemoryBarrier::default()
-        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+    let image_memory_barrier = vk::ImageMemoryBarrier2::default()
+        .src_stage_mask(vk::PipelineStageFlags2::TOP_OF_PIPE)
+        .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+        .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
         .old_layout(vk::ImageLayout::UNDEFINED)
         .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
         .image(image)
         .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).level_count(1).layer_count(1));
 
     unsafe {
-        device_loader.cmd_pipeline_barrier(
-            command_buffer,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            slice::from_ref(&image_memory_barrier)
-        )
-    };
+        device_loader.cmd_pipeline_barrier2(command_buffer, &vk::DependencyInfo::default().image_memory_barriers(slice::from_ref(&image_memory_barrier)));
+    }
 
     let color_attachment = vk::RenderingAttachmentInfo::default()
         .image_view(ctx.swapchain_image_views[image_index as usize])
@@ -89,29 +82,23 @@ pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
         .color_attachments(slice::from_ref(&color_attachment))
         .depth_attachment(&depth_attachment);
 
-    unsafe { dynamic_rendering_loader.cmd_begin_rendering(command_buffer, &rendering_info) };
+    unsafe { device_loader.cmd_begin_rendering(command_buffer, &rendering_info) };
 
     render_frame_inner(ctx, current_frame);
 
-    unsafe { dynamic_rendering_loader.cmd_end_rendering(command_buffer) };
+    unsafe { device_loader.cmd_end_rendering(command_buffer) };
 
-    let image_memory_barrier = vk::ImageMemoryBarrier::default()
-        .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+    let image_memory_barrier = vk::ImageMemoryBarrier2::default()
+        .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
         .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
         .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
         .image(image)
         .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).level_count(1).layer_count(1));
 
     unsafe {
-        device_loader.cmd_pipeline_barrier(
-            command_buffer,
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            slice::from_ref(&image_memory_barrier)
-        )
+        device_loader.cmd_pipeline_barrier2(command_buffer, &vk::DependencyInfo::default().image_memory_barriers(slice::from_ref(&image_memory_barrier)));
     };
 
     unsafe { device_loader.end_command_buffer(command_buffer) }.unwrap();
