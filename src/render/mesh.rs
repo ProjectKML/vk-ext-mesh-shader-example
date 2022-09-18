@@ -1,13 +1,13 @@
 use std::{mem, path::Path, slice, sync::Arc};
 
 use anyhow::Result;
-use ash::{prelude::VkResult, vk, Device};
+use ash::{vk, Device};
 use bytemuck::{Pod, Zeroable};
-use glam::{Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use meshopt::VertexDataAdapter;
 use vk_mem_alloc::Allocator;
 
-use crate::render::buffer::Buffer;
+use crate::{render::buffer::Buffer, RenderCtx};
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
@@ -139,24 +139,59 @@ pub struct MeshBuffers {
     pub vertex_buffer: Buffer,
     pub meshlet_buffer: Buffer,
     pub meshlet_data_buffer: Buffer,
-    pub num_meshlets: usize,
-    pub descriptor_set: vk::DescriptorSet
+    pub num_meshlets: usize
 }
 
 impl MeshBuffers {
-    pub unsafe fn new(
-        device: Arc<Device>,
-        queue: vk::Queue,
-        allocator: Allocator,
-        descriptor_pool: vk::DescriptorPool,
-        descriptor_set_layout: vk::DescriptorSetLayout,
-        path: impl AsRef<Path>
-    ) -> Result<Self> {
+    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, path: impl AsRef<Path>) -> Result<Self> {
         let mesh = Mesh::new(path)?;
 
         let vertex_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh.vertices)?;
         let meshlet_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh.meshlets)?;
         let meshlet_data_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh.meshlet_data)?;
+
+        Ok(Self {
+            vertex_buffer,
+            meshlet_buffer,
+            meshlet_data_buffer,
+            num_meshlets: mesh.meshlets.len()
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct MeshCollection {
+    mesh_buffers: Vec<MeshBuffers>,
+    _address_buffer: Buffer,
+    descriptor_set: vk::DescriptorSet
+}
+
+impl MeshCollection {
+    pub unsafe fn new<P: AsRef<Path>>(
+        device: &Arc<Device>,
+        queue: vk::Queue,
+        allocator: Allocator,
+        descriptor_pool: vk::DescriptorPool,
+        descriptor_set_layout: vk::DescriptorSetLayout,
+        names: impl IntoIterator<Item = P>
+    ) -> Result<Self> {
+        let mesh_buffers = names
+            .into_iter()
+            .map(|name| MeshBuffers::new(device.clone(), queue, allocator, name))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let addresses: Vec<_> = mesh_buffers
+            .iter()
+            .flat_map(|mesh_buffers| {
+                [
+                    mesh_buffers.vertex_buffer.device_address,
+                    mesh_buffers.meshlet_buffer.device_address,
+                    mesh_buffers.meshlet_data_buffer.device_address
+                ]
+            })
+            .collect();
+
+        let address_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &addresses)?;
 
         let descriptor_set = device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::default()
@@ -164,56 +199,52 @@ impl MeshBuffers {
                 .set_layouts(slice::from_ref(&descriptor_set_layout))
         )?[0];
 
-        let vertex_buffer_info = vk::DescriptorBufferInfo::default().buffer(vertex_buffer.buffer).range(vertex_buffer.size);
-        let meshlet_buffer_info = vk::DescriptorBufferInfo::default().buffer(meshlet_buffer.buffer).range(meshlet_buffer.size);
-        let meshlet_data_buffer_info = vk::DescriptorBufferInfo::default().buffer(meshlet_data_buffer.buffer).range(meshlet_data_buffer.size);
+        let descriptor_buffer_info = vk::DescriptorBufferInfo::default().buffer(address_buffer.buffer).range(address_buffer.size);
 
-        let write_descriptor_sets = [
-            vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(slice::from_ref(&vertex_buffer_info)),
-            vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(slice::from_ref(&meshlet_buffer_info)),
-            vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .dst_binding(2)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(slice::from_ref(&meshlet_data_buffer_info))
-        ];
+        let write_descriptor_set = vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(slice::from_ref(&descriptor_buffer_info));
 
-        device.update_descriptor_sets(&write_descriptor_sets, &[]);
+        device.update_descriptor_sets(slice::from_ref(&write_descriptor_set), &[]);
 
         Ok(Self {
-            vertex_buffer,
-            meshlet_buffer,
-            meshlet_data_buffer,
-            num_meshlets: mesh.meshlets.len(),
+            mesh_buffers,
+            _address_buffer: address_buffer,
             descriptor_set
         })
     }
 
-    pub unsafe fn create_descriptor_set_layout(device: &Device) -> VkResult<vk::DescriptorSetLayout> {
-        let bindings = [
-            vk::DescriptorSetLayoutBinding::default()
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(2)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT)
-        ];
+    pub unsafe fn bind(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer) {
+        ctx.device_loader.cmd_bind_descriptor_sets(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            ctx.pipeline_layout,
+            0,
+            slice::from_ref(&self.descriptor_set),
+            &[]
+        );
+    }
 
-        device.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings), None)
+    pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, mvp_matrix: &Mat4, mesh_idx: u32) {
+        ctx.device_loader.cmd_push_constants(
+            command_buffer,
+            ctx.pipeline_layout,
+            vk::ShaderStageFlags::MESH_EXT,
+            0,
+            slice::from_raw_parts(mvp_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
+        );
+
+        ctx.device_loader.cmd_push_constants(
+            command_buffer,
+            ctx.pipeline_layout,
+            vk::ShaderStageFlags::MESH_EXT,
+            mem::size_of::<Mat4>() as _,
+            slice::from_raw_parts(&mesh_idx as *const u32 as *const _, mem::size_of::<u32>())
+        );
+
+        let num_meshlets = self.mesh_buffers[mesh_idx as usize].num_meshlets;
+
+        ctx.mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer, ((num_meshlets * 32 + 31) >> 5) as u32, 1, 1)
     }
 }

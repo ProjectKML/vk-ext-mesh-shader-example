@@ -10,6 +10,7 @@ pub struct Buffer {
     pub buffer: vk::Buffer,
     pub allocation: Allocation,
     pub allocation_info: AllocationInfo,
+    pub device_address: vk::DeviceAddress,
     pub size: vk::DeviceSize,
     _device: Arc<Device>,
     allocator: Allocator
@@ -23,7 +24,7 @@ impl Buffer {
             allocator,
             &vk::BufferCreateInfo::default().size(size as _).usage(vk::BufferUsageFlags::TRANSFER_SRC),
             &AllocationCreateInfo {
-                flags: AllocationCreateFlags::HOST_ACCESS_RANDOM | AllocationCreateFlags::MAPPED,
+                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
                 usage: MemoryUsage::AUTO_PREFER_HOST,
                 ..Default::default()
             }
@@ -35,12 +36,14 @@ impl Buffer {
             allocator,
             &vk::BufferCreateInfo::default()
                 .size(size as _)
-                .usage(vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::STORAGE_BUFFER),
+                .usage(vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS),
             &AllocationCreateInfo {
                 usage: MemoryUsage::AUTO_PREFER_DEVICE,
                 ..Default::default()
             }
         )?;
+
+        let device_address = device.get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer));
 
         let command_pool = device.create_command_pool(&vk::CommandPoolCreateInfo::default(), None)?;
         let command_buffer = device.allocate_command_buffers(&vk::CommandBufferAllocateInfo::default().command_pool(command_pool).command_buffer_count(1))?[0];
@@ -66,6 +69,7 @@ impl Buffer {
             buffer,
             allocation,
             allocation_info,
+            device_address,
             size: size as _,
             _device: device,
             allocator

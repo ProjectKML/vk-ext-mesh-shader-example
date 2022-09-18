@@ -1,7 +1,7 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    mem, slice
+    slice
 };
 
 use ash::vk;
@@ -155,16 +155,7 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
         * Mat4::look_at_lh(final_transform.position, final_transform.position + final_transform.forward(), final_transform.up())
         * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0));
 
-    unsafe {
-        ctx.device_loader.cmd_bind_descriptor_sets(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            ctx.pipeline_layout,
-            0,
-            slice::from_ref(&ctx.mesh_buffers.descriptor_set),
-            &[]
-        );
-    }
+    unsafe { ctx.mesh_collection.bind(ctx, command_buffer) };
 
     for i in 0..7 {
         for j in 0..13 {
@@ -172,35 +163,32 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
                 let mut hasher = DefaultHasher::new();
                 (i * 1128889).hash(&mut hasher);
                 (j * 1254739).hash(&mut hasher);
+                (i + j).hash(&mut hasher);
 
                 let hash_code = hasher.finish();
                 (hash_code & 255) as f32 / 255.0 * std::f32::consts::PI
             };
 
-            let translation_matrix = Mat4::from_rotation_y(angle) * Mat4::from_translation(Vec3::new(i as f32 * 7.0, 0.0, j as f32 * 5.0));
+            let mesh_idx = (i + j) % 3;
+            let scale = if mesh_idx == 0 {
+                1.0
+            } else if mesh_idx == 1 {
+                0.1
+            } else {
+                22.0
+            };
 
-            render_mesh(ctx, current_frame, &view_projection_matrix, &translation_matrix);
+            let translation_matrix = Mat4::from_rotation_y(angle) * Mat4::from_translation(Vec3::new(i as f32 * 7.0, 0.0, j as f32 * 5.0)) * Mat4::from_scale(Vec3::splat(scale));
+
+            render_mesh(ctx, current_frame, mesh_idx, &view_projection_matrix, &translation_matrix);
         }
     }
-
-    render_mesh(ctx, current_frame, &view_projection_matrix, &Mat4::IDENTITY);
 }
 
-fn render_mesh(ctx: &RenderCtx, current_frame: &Frame, view_projection_matrix: &Mat4, translation_matrix: &Mat4) {
+fn render_mesh(ctx: &RenderCtx, current_frame: &Frame, mesh_idx: u32, view_projection_matrix: &Mat4, translation_matrix: &Mat4) {
     let command_buffer = current_frame.command_buffer;
 
     let mvp_matrix = *view_projection_matrix * *translation_matrix;
 
-    unsafe {
-        ctx.device_loader.cmd_push_constants(
-            command_buffer,
-            ctx.pipeline_layout,
-            vk::ShaderStageFlags::MESH_EXT,
-            0,
-            slice::from_raw_parts(&mvp_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
-        );
-
-        ctx.mesh_shader_loader
-            .cmd_draw_mesh_tasks(command_buffer, ((ctx.mesh_buffers.num_meshlets * 32 + 31) >> 5) as u32, 1, 1)
-    }
+    unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &mvp_matrix, mesh_idx) };
 }

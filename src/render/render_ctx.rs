@@ -12,10 +12,10 @@ use dolly::{
     prelude::{CameraRig, Smooth, YawPitch}
 };
 use glam::{Mat4, Vec3};
-use vk_mem_alloc::Allocation;
+use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
-use crate::render::{frame, frame::Frame, mesh::MeshBuffers, util};
+use crate::render::{frame, frame::Frame, mesh::MeshCollection, util};
 
 pub const WIDTH: u32 = 1600;
 pub const HEIGHT: u32 = 900;
@@ -54,7 +54,7 @@ pub struct RenderCtx {
 
     pub frames: Vec<ManuallyDrop<Frame>>,
     pub camera_rig: CameraRig,
-    pub mesh_buffers: ManuallyDrop<MeshBuffers>
+    pub mesh_collection: ManuallyDrop<MeshCollection>
 }
 
 impl RenderCtx {
@@ -88,11 +88,13 @@ impl RenderCtx {
 
         let physical_device_features = vk::PhysicalDeviceFeatures::default();
 
+        let mut physical_device_vulkan_12_features = vk::PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
         let mut physical_device_dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
         let mut physical_device_mesh_shader_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default().mesh_shader(true);
 
         let mut physical_device_features = vk::PhysicalDeviceFeatures2::default()
             .features(physical_device_features)
+            .push_next(&mut physical_device_vulkan_12_features)
             .push_next(&mut physical_device_dynamic_rendering_features)
             .push_next(&mut physical_device_mesh_shader_features);
 
@@ -105,7 +107,18 @@ impl RenderCtx {
         let dynamic_rendering_loader = DynamicRendering::new(&instance_loader, &device_loader);
         let mesh_shader_loader = MeshShader::new(&instance_loader, &device_loader);
 
-        let allocator = unsafe { vk_mem_alloc::create_allocator(&instance_loader, physical_device, &device_loader, None) }.unwrap();
+        let allocator = unsafe {
+            vk_mem_alloc::create_allocator(
+                &instance_loader,
+                physical_device,
+                &device_loader,
+                Some(&AllocatorCreateInfo {
+                    flags: AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS,
+                    ..Default::default()
+                })
+            )
+        }
+        .unwrap();
 
         let direct_queue = unsafe { device_loader.get_device_queue(0, 0) };
 
@@ -145,8 +158,19 @@ impl RenderCtx {
         let descriptor_pool =
             unsafe { util::create_descriptor_pool(&device_loader, &[vk::DescriptorPoolSize::default().ty(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(3)]) }.unwrap();
 
-        let descriptor_set_layout = unsafe { MeshBuffers::create_descriptor_set_layout(&device_loader) }.unwrap();
-        let push_constant_range = vk::PushConstantRange::default().stage_flags(vk::ShaderStageFlags::MESH_EXT).size(mem::size_of::<Mat4>() as _);
+        let descriptor_set_layout = unsafe {
+            let descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::default()
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::MESH_EXT);
+
+            device_loader.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(slice::from_ref(&descriptor_set_layout_binding)), None)
+        }
+        .unwrap();
+
+        let push_constant_range = vk::PushConstantRange::default()
+            .stage_flags(vk::ShaderStageFlags::MESH_EXT)
+            .size((mem::size_of::<Mat4>() + mem::size_of::<vk::DeviceAddress>() * 3) as _);
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default()
             .set_layouts(slice::from_ref(&descriptor_set_layout))
@@ -169,7 +193,19 @@ impl RenderCtx {
             .with(Smooth::new_position_rotation(1.0, 1.0))
             .build();
 
-        let mesh_buffers = ManuallyDrop::new(unsafe { MeshBuffers::new(device_loader.clone(), direct_queue, allocator, descriptor_pool, descriptor_set_layout, "dragon.obj") }.unwrap());
+        let mesh_collection = ManuallyDrop::new(
+            unsafe {
+                MeshCollection::new(
+                    &device_loader,
+                    direct_queue,
+                    allocator,
+                    descriptor_pool,
+                    descriptor_set_layout,
+                    ["dragon.obj", "armadillo.obj", "bunny.obj"]
+                )
+            }
+            .unwrap()
+        );
 
         Self {
             entry_loader,
@@ -202,7 +238,7 @@ impl RenderCtx {
 
             frames,
             camera_rig,
-            mesh_buffers
+            mesh_collection
         }
     }
 }
@@ -212,7 +248,7 @@ impl Drop for RenderCtx {
         unsafe {
             self.device_loader.device_wait_idle().unwrap();
 
-            ManuallyDrop::drop(&mut self.mesh_buffers);
+            ManuallyDrop::drop(&mut self.mesh_collection);
             self.frames.iter_mut().for_each(|frame| ManuallyDrop::drop(frame));
 
             self.device_loader.destroy_pipeline(self.pipeline, None);
