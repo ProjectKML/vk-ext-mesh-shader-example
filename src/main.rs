@@ -23,7 +23,7 @@ fn main() {
         .unwrap();
 
     window.set_cursor_visible(false);
-    window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
+    window.set_cursor_grab(CursorGrabMode::Confined);
 
     let mut render_ctx = RenderCtx::new(&window);
 
