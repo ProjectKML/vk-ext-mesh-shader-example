@@ -12,6 +12,7 @@ use dolly::{
     prelude::{CameraRig, Smooth, YawPitch}
 };
 use glam::{Mat4, Vec3};
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
@@ -65,7 +66,10 @@ impl RenderCtx {
         let instance_layers = [b"VK_LAYER_KHRONOS_validation\0".as_ptr().cast()];
 
         let mut instance_extensions = vec![];
-        ash_window::enumerate_required_extensions(&window).unwrap().iter().for_each(|e| instance_extensions.push(*e));
+        ash_window::enumerate_required_extensions(window.raw_display_handle())
+            .unwrap()
+            .iter()
+            .for_each(|e| instance_extensions.push(*e));
 
         let instance_create_info = vk::InstanceCreateInfo::default()
             .enabled_layer_names(&instance_layers)
@@ -75,7 +79,7 @@ impl RenderCtx {
         let instance_loader = unsafe { entry_loader.create_instance(&instance_create_info, None) }.unwrap();
         let surface_loader = Surface::new(&entry_loader, &instance_loader);
 
-        let surface = unsafe { ash_window::create_surface(&entry_loader, &instance_loader, &window, None) }.unwrap();
+        let surface = unsafe { ash_window::create_surface(&entry_loader, &instance_loader, window.raw_display_handle(), window.raw_window_handle(), None) }.unwrap();
 
         let physical_devices = unsafe { instance_loader.enumerate_physical_devices() }.unwrap();
         let physical_device = physical_devices[0];
