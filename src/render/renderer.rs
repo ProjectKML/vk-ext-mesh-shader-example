@@ -177,5 +177,5 @@ fn render_mesh(ctx: &RenderCtx, current_frame: &Frame, mesh_idx: u32, view_proje
 
     let mvp_matrix = *view_projection_matrix * *translation_matrix;
 
-    unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &mvp_matrix, mesh_idx) };
+    unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &mvp_matrix, mesh_idx, 0) };
 }

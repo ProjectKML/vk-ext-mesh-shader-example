@@ -5,7 +5,7 @@
 #extension GL_EXT_mesh_shader : require
 
 layout(local_size_x = 32) in;
-layout(max_vertices = 64, max_primitives = 126, triangles) out;
+layout(max_vertices = 64, max_primitives = 124, triangles) out;
 
 layout(location = 0) out vec2[] out_tex_coords;
 layout(location = 1) out vec3[] out_normals;
@@ -35,19 +35,29 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer MeshletDataR
     uint value;
 };
 
-struct MeshBuffers {
+struct MeshLevel {
     VertexRef vertices;
     MeshletRef meshlets;
     MeshletDataRef meshlet_data;
 };
 
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer MeshLevelRef {
+    MeshLevel value;
+};
+
+struct Mesh {
+    MeshLevelRef levels;
+    uint num_levels;
+};
+
 layout(set = 0, binding = 0) readonly buffer MeshBuffersBuffer {
-    MeshBuffers mesh_buffers[];
+    Mesh meshes[];
 };
 
 layout(push_constant) uniform PushConstants {
     mat4 view_projection_matrix;
     uint mesh_idx;
+    uint level_idx;
 } push_constants;
 
 uint murmur_hash_11(uint src) {
@@ -79,18 +89,18 @@ void main() {
     const uint liid = gl_LocalInvocationIndex;
     const uint meshlet_idx = gl_WorkGroupID.x;
 
-    MeshBuffers mesh_buf = mesh_buffers[push_constants.mesh_idx];
+    MeshLevel mesh_level = meshes[push_constants.mesh_idx].levels[push_constants.level_idx].value;
 
-    const Meshlet meshlet = mesh_buf.meshlets[meshlet_idx].value;
+    const Meshlet meshlet = mesh_level.meshlets[meshlet_idx].value;
     SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
 
     const vec3 meshlet_color = murmur_hash_11_color(meshlet_idx);
 
-    MeshletDataRef meshlet_data = mesh_buf.meshlet_data;
+    MeshletDataRef meshlet_data = mesh_level.meshlet_data;
 
     for(uint i = liid; i < meshlet.vertex_count; i += 32) {
         const uint vertex_idx = meshlet_data[meshlet.data_offset + i].value;
-        const Vertex vertex = mesh_buf.vertices[vertex_idx].value;
+        const Vertex vertex = mesh_level.vertices[vertex_idx].value;
 
         gl_MeshVerticesEXT[i].gl_Position = push_constants.view_projection_matrix * vec4(vertex.position_x, vertex.position_y, vertex.position_z, 1.0);
 

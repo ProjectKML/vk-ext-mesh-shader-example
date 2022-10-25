@@ -172,7 +172,7 @@ impl RenderCtx {
 
         let push_constant_range = vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::MESH_EXT)
-            .size((mem::size_of::<Mat4>() + mem::size_of::<vk::DeviceAddress>() * 3) as _);
+            .size((mem::size_of::<Mat4>() + mem::size_of::<u32>() * 2) as _);
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default()
             .set_layouts(slice::from_ref(&descriptor_set_layout))

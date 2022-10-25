@@ -4,7 +4,7 @@ use anyhow::Result;
 use ash::{vk, Device};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec2, Vec3};
-use meshopt::VertexDataAdapter;
+use meshopt::{DecodePosition, VertexDataAdapter};
 use vk_mem_alloc::Allocator;
 
 use crate::{render::buffer::Buffer, RenderCtx};
@@ -24,6 +24,13 @@ impl Vertex {
     #[inline]
     pub fn new(position: Vec3, tex_coord: Vec2, normal: Vec3) -> Self {
         Self { position, tex_coord, normal }
+    }
+}
+
+impl DecodePosition for Vertex {
+    #[inline]
+    fn decode_position(&self) -> [f32; 3] {
+        self.position.into()
     }
 }
 
@@ -54,10 +61,22 @@ const MAX_TRIANGLES: usize = 124;
 const CONE_WEIGHT: f32 = 0.0;
 
 #[derive(Clone, Debug, Default)]
-pub struct Mesh {
+pub struct MeshLevel {
     pub vertices: Vec<Vertex>,
     pub meshlets: Vec<Meshlet>,
     pub meshlet_data: Vec<u32>
+}
+
+impl MeshLevel {
+    #[inline]
+    pub fn new(vertices: Vec<Vertex>, meshlets: Vec<Meshlet>, meshlet_data: Vec<u32>) -> Self {
+        Self { vertices, meshlets, meshlet_data }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Mesh {
+    pub levels: Vec<MeshLevel>
 }
 
 impl Mesh {
@@ -90,71 +109,104 @@ impl Mesh {
         let mut indices = meshopt::remap_index_buffer(None, indices.len(), &remap);
 
         meshopt::optimize_vertex_cache_in_place(&mut indices, vertices.len());
-        meshopt::optimize_overdraw_in_place(&mut indices, &VertexDataAdapter::new(bytemuck::cast_slice(&vertices), mem::size_of::<Vertex>(), 0)?, 1.01);
+        meshopt::optimize_overdraw_in_place_decoder(&mut indices, &vertices, 1.01);
         meshopt::optimize_vertex_fetch_in_place(&mut indices, &mut vertices);
 
-        let meshlets = meshopt::build_meshlets(
-            &indices,
-            &VertexDataAdapter::new(bytemuck::cast_slice(&vertices), mem::size_of::<Vertex>(), 0)?,
-            MAX_VERTICES,
-            MAX_TRIANGLES,
-            CONE_WEIGHT
-        );
+        let num_levels = 1;
 
-        let num_meshlet_data = meshlets.iter().map(|meshlet| meshlet.vertices.len() + ((meshlet.triangles.len() * 3 + 3) >> 2)).sum();
+        Ok(Self {
+            levels: (0..num_levels)
+                .into_iter()
+                .map(|i| {
+                    let (level_vertices, level_indices) = if i == 0 { (vertices.clone(), indices.clone()) } else { (vertices.clone(), indices.clone()) };
 
-        let mut meshlet_data = vec![0; num_meshlet_data];
+                    let meshlets = meshopt::build_meshlets(
+                        &level_indices,
+                        &VertexDataAdapter::new(bytemuck::cast_slice(&level_vertices), mem::size_of::<Vertex>(), 0).unwrap(),
+                        MAX_VERTICES,
+                        MAX_TRIANGLES,
+                        CONE_WEIGHT
+                    );
 
-        let mut index = 0;
-        let meshlets = meshlets
-            .iter()
-            .map(|meshlet| {
-                let data_offset = index;
+                    let num_meshlet_data = meshlets.iter().map(|meshlet| meshlet.vertices.len() + ((meshlet.triangles.len() * 3 + 3) >> 2)).sum();
 
-                for vertex in meshlet.vertices {
-                    meshlet_data[index] = *vertex;
-                    index += 1;
-                }
+                    let mut meshlet_data = vec![0; num_meshlet_data];
 
-                let num_packed_indices = (meshlet.triangles.len() + 3) >> 2;
-                for j in 0..num_packed_indices {
-                    let triangle_offset = j << 2;
-                    meshlet_data[index] = (meshlet.triangles[triangle_offset] as u32) << 24
-                        | (meshlet.triangles.get(triangle_offset + 1).copied().unwrap_or_default() as u32) << 16
-                        | (meshlet.triangles.get(triangle_offset + 2).copied().unwrap_or_default() as u32) << 8
-                        | (meshlet.triangles.get(triangle_offset + 3).copied().unwrap_or_default() as u32);
-                    index += 1;
-                }
+                    let mut index = 0;
+                    let meshlets = meshlets
+                        .iter()
+                        .map(|meshlet| {
+                            let data_offset = index;
 
-                Meshlet::new(data_offset as _, meshlet.vertices.len() as _, (meshlet.triangles.len() / 3) as _)
-            })
-            .collect();
+                            for vertex in meshlet.vertices {
+                                meshlet_data[index] = *vertex;
+                                index += 1;
+                            }
 
-        Ok(Self { vertices, meshlets, meshlet_data })
+                            let num_packed_indices = (meshlet.triangles.len() + 3) >> 2;
+                            for j in 0..num_packed_indices {
+                                let triangle_offset = j << 2;
+                                meshlet_data[index] = (meshlet.triangles[triangle_offset] as u32) << 24
+                                    | (meshlet.triangles.get(triangle_offset + 1).copied().unwrap_or_default() as u32) << 16
+                                    | (meshlet.triangles.get(triangle_offset + 2).copied().unwrap_or_default() as u32) << 8
+                                    | (meshlet.triangles.get(triangle_offset + 3).copied().unwrap_or_default() as u32);
+                                index += 1;
+                            }
+
+                            Meshlet::new(data_offset as _, meshlet.vertices.len() as _, (meshlet.triangles.len() / 3) as _)
+                        })
+                        .collect();
+
+                    MeshLevel {
+                        vertices: level_vertices,
+                        meshlets,
+                        meshlet_data
+                    }
+                })
+                .collect()
+        })
     }
 }
 
 #[derive(Clone)]
 pub struct MeshBuffers {
+    pub levels: Vec<MeshLevelBuffers>
+}
+
+impl MeshBuffers {
+    #[inline]
+    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, path: impl AsRef<Path>) -> Result<Self> {
+        let mesh = Mesh::new(path)?;
+
+        let levels = mesh
+            .levels
+            .iter()
+            .map(|level| MeshLevelBuffers::new(device.clone(), queue, allocator, &level.vertices, &level.meshlets, &level.meshlet_data))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { levels })
+    }
+}
+
+#[derive(Clone)]
+pub struct MeshLevelBuffers {
     pub vertex_buffer: Buffer,
     pub meshlet_buffer: Buffer,
     pub meshlet_data_buffer: Buffer,
     pub num_meshlets: usize
 }
 
-impl MeshBuffers {
-    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, path: impl AsRef<Path>) -> Result<Self> {
-        let mesh = Mesh::new(path)?;
-
-        let vertex_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh.vertices)?;
-        let meshlet_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh.meshlets)?;
-        let meshlet_data_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh.meshlet_data)?;
+impl MeshLevelBuffers {
+    #[inline]
+    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, vertices: &[Vertex], meshlets: &[Meshlet], meshlet_data: &[u32]) -> Result<Self> {
+        let vertex_buffer = Buffer::new_device_local(device.clone(), queue, allocator, vertices)?;
+        let meshlet_buffer = Buffer::new_device_local(device.clone(), queue, allocator, meshlets)?;
+        let meshlet_data_buffer = Buffer::new_device_local(device.clone(), queue, allocator, meshlet_data)?;
 
         Ok(Self {
             vertex_buffer,
             meshlet_buffer,
             meshlet_data_buffer,
-            num_meshlets: mesh.meshlets.len()
+            num_meshlets: meshlets.len()
         })
     }
 }
@@ -162,7 +214,8 @@ impl MeshBuffers {
 #[derive(Clone)]
 pub struct MeshCollection {
     mesh_buffers: Vec<MeshBuffers>,
-    _address_buffer: Buffer,
+    _mesh_level_addresses: Buffer,
+    _mesh_addresses: Buffer,
     descriptor_set: vk::DescriptorSet
 }
 
@@ -178,20 +231,34 @@ impl MeshCollection {
         let mesh_buffers = names
             .into_iter()
             .map(|name| MeshBuffers::new(device.clone(), queue, allocator, name))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
-        let addresses: Vec<_> = mesh_buffers
+        let mesh_level_addresses: Vec<_> = mesh_buffers
             .iter()
-            .flat_map(|mesh_buffers| {
+            .flat_map(|mesh_buffers| mesh_buffers.levels.iter())
+            .flat_map(|level_buffer| {
                 [
-                    mesh_buffers.vertex_buffer.device_address,
-                    mesh_buffers.meshlet_buffer.device_address,
-                    mesh_buffers.meshlet_data_buffer.device_address
+                    level_buffer.vertex_buffer.device_address,
+                    level_buffer.meshlet_buffer.device_address,
+                    level_buffer.meshlet_data_buffer.device_address
                 ]
             })
             .collect();
 
-        let address_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &addresses)?;
+        let mesh_level_addresses_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh_level_addresses)?;
+
+        let mesh_addresses: Vec<_> = mesh_buffers
+            .iter()
+            .enumerate()
+            .flat_map(|(i, mesh_buffers)| {
+                [
+                    mesh_level_addresses_buffer.device_address + (i * 3 * mem::size_of::<vk::DeviceAddress>()) as u64,
+                    mesh_buffers.levels.len() as _
+                ]
+            })
+            .collect();
+
+        let mesh_addresses_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh_addresses)?;
 
         let descriptor_set = device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::default()
@@ -199,7 +266,7 @@ impl MeshCollection {
                 .set_layouts(slice::from_ref(&descriptor_set_layout))
         )?[0];
 
-        let descriptor_buffer_info = vk::DescriptorBufferInfo::default().buffer(address_buffer.buffer).range(address_buffer.size);
+        let descriptor_buffer_info = vk::DescriptorBufferInfo::default().buffer(mesh_addresses_buffer.buffer).range(mesh_addresses_buffer.size);
 
         let write_descriptor_set = vk::WriteDescriptorSet::default()
             .dst_set(descriptor_set)
@@ -210,7 +277,8 @@ impl MeshCollection {
 
         Ok(Self {
             mesh_buffers,
-            _address_buffer: address_buffer,
+            _mesh_level_addresses: mesh_level_addresses_buffer,
+            _mesh_addresses: mesh_addresses_buffer,
             descriptor_set
         })
     }
@@ -226,7 +294,7 @@ impl MeshCollection {
         );
     }
 
-    pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, mvp_matrix: &Mat4, mesh_idx: u32) {
+    pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, mvp_matrix: &Mat4, mesh_idx: u32, level_idx: u32) {
         ctx.device_loader.cmd_push_constants(
             command_buffer,
             ctx.pipeline_layout,
@@ -235,15 +303,17 @@ impl MeshCollection {
             slice::from_raw_parts(mvp_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
         );
 
+        let constants = [mesh_idx, level_idx];
+
         ctx.device_loader.cmd_push_constants(
             command_buffer,
             ctx.pipeline_layout,
             vk::ShaderStageFlags::MESH_EXT,
             mem::size_of::<Mat4>() as _,
-            slice::from_raw_parts(&mesh_idx as *const u32 as *const _, mem::size_of::<u32>())
+            slice::from_raw_parts(&constants as *const u32 as *const _, constants.len() * mem::size_of::<u32>())
         );
 
-        let num_meshlets = self.mesh_buffers[mesh_idx as usize].num_meshlets;
+        let num_meshlets = self.mesh_buffers[mesh_idx as usize].levels[level_idx as usize].num_meshlets;
 
         ctx.mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer, ((num_meshlets * 32 + 31) >> 5) as u32, 1, 1)
     }
