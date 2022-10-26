@@ -57,7 +57,7 @@ impl Meshlet {
 }
 
 const MAX_VERTICES: usize = 64;
-const MAX_TRIANGLES: usize = 126;
+const MAX_TRIANGLES: usize = 124;
 const CONE_WEIGHT: f32 = 0.0;
 
 #[derive(Clone, Debug, Default)]

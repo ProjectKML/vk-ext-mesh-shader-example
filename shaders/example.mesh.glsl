@@ -5,7 +5,7 @@
 #extension GL_EXT_mesh_shader : require
 
 layout(local_size_x_id = 0) in;
-layout(max_vertices = 64, max_primitives = 126, triangles) out;
+layout(max_vertices = 64, max_primitives = 124, triangles) out;
 
 layout(location = 0) out vec2[] out_tex_coords;
 layout(location = 1) out vec3[] out_normals;
