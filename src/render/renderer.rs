@@ -144,8 +144,8 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
 
     unsafe { ctx.mesh_collection.bind(ctx, command_buffer, &view_projection_matrix, &final_transform.position) };
 
-    for i in 0..7 {
-        for j in 0..13 {
+    for i in 0..13 {
+        for j in 0..25 {
             let angle = {
                 let mut hasher = DefaultHasher::new();
                 (i * 1128889).hash(&mut hasher);

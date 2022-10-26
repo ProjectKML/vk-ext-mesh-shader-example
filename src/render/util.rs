@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs::File, io::Read, path::Path, slice};
+use std::{ffi::CString, fs::File, io::Read, mem, path::Path, slice};
 
 use anyhow::Result;
 use ash::{prelude::VkResult, vk, Device};
@@ -36,16 +36,26 @@ pub unsafe fn create_mesh_pipeline(
     fragment_entry_point: &str,
     swapchain_format: vk::Format,
     depth_format: vk::Format,
-    layout: vk::PipelineLayout
+    layout: vk::PipelineLayout,
+    mesh_shader_properties: &vk::PhysicalDeviceMeshShaderPropertiesEXT
 ) -> Result<vk::Pipeline> {
     let mesh_entry_point = CString::new(mesh_entry_point).unwrap();
     let fragment_entry_point = CString::new(fragment_entry_point).unwrap();
+
+    let specialization_map_entry = vk::SpecializationMapEntry::default().size(mem::size_of::<u32>());
+
+    let values = [mesh_shader_properties.max_preferred_mesh_work_group_invocations];
+
+    let specialization_info = vk::SpecializationInfo::default()
+        .map_entries(slice::from_ref(&specialization_map_entry))
+        .data(bytemuck::cast_slice(&values));
 
     let shader_stage_create_infos = vec![
         vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::MESH_EXT)
             .module(mesh_shader)
-            .name(&mesh_entry_point),
+            .name(&mesh_entry_point)
+            .specialization_info(&specialization_info),
         vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::FRAGMENT)
             .module(fragment_shader)

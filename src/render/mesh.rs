@@ -57,7 +57,7 @@ impl Meshlet {
 }
 
 const MAX_VERTICES: usize = 64;
-const MAX_TRIANGLES: usize = 124;
+const MAX_TRIANGLES: usize = 126;
 const CONE_WEIGHT: f32 = 0.0;
 
 #[derive(Clone, Debug, Default)]
@@ -206,7 +206,7 @@ impl MeshLevelBuffers {
     pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, vertices: &[Vertex], meshlets: &[Meshlet], meshlet_data: &[u32]) -> Result<Self> {
         let vertex_buffer = Buffer::new_device_local(device.clone(), queue, allocator, vertices)?;
         let meshlet_buffer = Buffer::new_device_local(device.clone(), queue, allocator, meshlets)?;
-        let meshlet_data_buffer = Buffer::new_device_local(device.clone(), queue, allocator, meshlet_data)?;
+        let meshlet_data_buffer = Buffer::new_device_local(device, queue, allocator, meshlet_data)?;
 
         Ok(Self {
             vertex_buffer,
@@ -333,6 +333,7 @@ impl MeshCollection {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, position: &Vec3, scale: f32, rotation: &Quat, mesh_idx: u32, level_idx: u32) {
         #[repr(C)]
         struct Constants {
@@ -350,7 +351,6 @@ impl MeshCollection {
 
         let mesh_buffers = &self.mesh_buffers[mesh_idx as usize];
         let level_idx = level_idx.clamp(0, (mesh_buffers.levels.len() - 1) as u32);
-        println!("{}", level_idx);
 
         let constants = Constants {
             translation_x: position.x,
@@ -375,6 +375,11 @@ impl MeshCollection {
 
         let num_meshlets = mesh_buffers.levels[level_idx as usize].num_meshlets;
 
-        ctx.mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer, ((num_meshlets * 32 + 31) >> 5) as u32, 1, 1)
+        ctx.mesh_shader_loader.cmd_draw_mesh_tasks(
+            command_buffer,
+            ((num_meshlets * ctx.workgroup_size as usize + ctx.workgroup_size as usize - 1) / ctx.workgroup_size as usize) as u32,
+            1,
+            1
+        )
     }
 }

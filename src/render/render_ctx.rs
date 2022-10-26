@@ -54,7 +54,9 @@ pub struct RenderCtx {
 
     pub frames: Vec<ManuallyDrop<Frame>>,
     pub camera_rig: CameraRig,
-    pub mesh_collection: ManuallyDrop<MeshCollection>
+    pub mesh_collection: ManuallyDrop<MeshCollection>,
+
+    pub workgroup_size: u32
 }
 
 impl RenderCtx {
@@ -83,6 +85,19 @@ impl RenderCtx {
 
         let physical_devices = unsafe { instance_loader.enumerate_physical_devices() }.unwrap();
         let physical_device = physical_devices[0];
+
+        let mut physical_device_vulkan_12_properties = vk::PhysicalDeviceVulkan12Properties::default();
+        let mut physical_device_vulkan_13_properties = vk::PhysicalDeviceVulkan13Properties::default();
+        let mut physical_device_mesh_shader_properties = vk::PhysicalDeviceMeshShaderPropertiesEXT::default();
+
+        let mut physical_device_properties = vk::PhysicalDeviceProperties2::default()
+            .push_next(&mut physical_device_vulkan_12_properties)
+            .push_next(&mut physical_device_vulkan_13_properties)
+            .push_next(&mut physical_device_mesh_shader_properties);
+
+        unsafe { instance_loader.get_physical_device_properties2(physical_device, &mut physical_device_properties) };
+
+        dbg!(&physical_device_mesh_shader_properties);
 
         let queue_priority = 1.0;
         let device_queue_create_info = vk::DeviceQueueCreateInfo::default().queue_priorities(slice::from_ref(&queue_priority));
@@ -189,7 +204,20 @@ impl RenderCtx {
         let mesh_shader = util::create_shader_module(&device_loader, "example.mesh.spv").unwrap();
         let fragment_shader = util::create_shader_module(&device_loader, "example.frag.spv").unwrap();
 
-        let pipeline = unsafe { util::create_mesh_pipeline(&device_loader, mesh_shader, "main", fragment_shader, "main", SWAPCHAIN_FORMAT, DEPTH_FORMAT, pipeline_layout) }.unwrap();
+        let pipeline = unsafe {
+            util::create_mesh_pipeline(
+                &device_loader,
+                mesh_shader,
+                "main",
+                fragment_shader,
+                "main",
+                SWAPCHAIN_FORMAT,
+                DEPTH_FORMAT,
+                pipeline_layout,
+                &physical_device_mesh_shader_properties
+            )
+        }
+        .unwrap();
 
         unsafe { device_loader.destroy_shader_module(fragment_shader, None) };
         unsafe { device_loader.destroy_shader_module(mesh_shader, None) };
@@ -247,7 +275,9 @@ impl RenderCtx {
 
             frames,
             camera_rig,
-            mesh_collection
+            mesh_collection,
+
+            workgroup_size: physical_device_mesh_shader_properties.max_preferred_mesh_work_group_invocations
         }
     }
 }
