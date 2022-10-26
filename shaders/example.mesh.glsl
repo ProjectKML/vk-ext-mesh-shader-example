@@ -106,7 +106,7 @@ void main() {
     const Meshlet meshlet = mesh_level.meshlets[meshlet_idx].value;
     SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
 
-    const vec3 meshlet_color = murmur_hash_11_color(meshlet_idx);
+    const vec3 meshlet_color = murmur_hash_11_color(meshlet_idx ^ floatBitsToInt(length(vec3(push_constants.translation_x, push_constants.translation_y, push_constants.translation_z))));
 
     MeshletDataRef meshlet_data = mesh_level.meshlet_data;
 
