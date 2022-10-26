@@ -17,6 +17,28 @@ pub struct Buffer {
 }
 
 impl Buffer {
+    pub unsafe fn new_uniform(device: Arc<Device>, allocator: Allocator, size: usize) -> Result<Self> {
+        let (buffer, allocation, allocation_info) = vk_mem_alloc::create_buffer(
+            allocator,
+            &vk::BufferCreateInfo::default().size(size as _).usage(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            &AllocationCreateInfo {
+                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
+                usage: MemoryUsage::AUTO_PREFER_HOST,
+                ..Default::default()
+            }
+        )?;
+
+        Ok(Buffer {
+            buffer,
+            allocation,
+            allocation_info,
+            device_address: 0,
+            size: size as _,
+            _device: device,
+            allocator
+        })
+    }
+
     pub unsafe fn new_device_local<T: Pod>(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, data: &[T]) -> Result<Self> {
         let size = data.len() * mem::size_of::<T>();
 

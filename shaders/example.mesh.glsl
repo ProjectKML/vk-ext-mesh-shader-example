@@ -50,12 +50,18 @@ struct Mesh {
     uint num_levels;
 };
 
-layout(set = 0, binding = 0) readonly buffer MeshBuffersBuffer {
+layout(set = 0, binding = 0) uniform Constants {
+	mat4 view_projection_matrix;
+	vec3 camera_pos;
+} constants;
+
+layout(set = 0, binding = 1) readonly buffer MeshBuffersBuffer {
     Mesh meshes[];
 };
 
 layout(push_constant) uniform PushConstants {
-    mat4 view_projection_matrix;
+    float translation_x, translation_y, translation_z, scale;
+	vec4 rotation;
     uint mesh_idx;
     uint level_idx;
 } push_constants;
@@ -85,6 +91,12 @@ uint get_index(MeshletDataRef meshlet_data, uint index_offset, uint index) {
     return (meshlet_data[index_offset + (index >> 2)].value & (0xFF << byte_offset)) >> byte_offset;
 }
 
+vec4 calculate_pos(mat4 view_projection_matrix, vec3 position, vec3 translation, float scale, vec4 rotation) {
+	vec3 translated_pos = scale * position + translation;
+	vec3 target_pos = translated_pos + 2.0 * cross(rotation.xyz, cross(rotation.xyz, translated_pos) + rotation.w * translated_pos);
+	return view_projection_matrix * vec4(target_pos, 1.0);
+}
+
 void main() {
     const uint liid = gl_LocalInvocationIndex;
     const uint meshlet_idx = gl_WorkGroupID.x;
@@ -102,7 +114,9 @@ void main() {
         const uint vertex_idx = meshlet_data[meshlet.data_offset + i].value;
         const Vertex vertex = mesh_level.vertices[vertex_idx].value;
 
-        gl_MeshVerticesEXT[i].gl_Position = push_constants.view_projection_matrix * vec4(vertex.position_x, vertex.position_y, vertex.position_z, 1.0);
+        gl_MeshVerticesEXT[i].gl_Position = calculate_pos(constants.view_projection_matrix, 
+			vec3(vertex.position_x, vertex.position_y, vertex.position_z), 
+			vec3(push_constants.translation_x, push_constants.translation_y, push_constants.translation_z), push_constants.scale, push_constants.rotation);
 
         out_tex_coords[i] = vec2(vertex.tex_coord_x, vertex.tex_coord_y);
         out_normals[i] = vec3(vertex.normal_x, vertex.normal_y, vertex.normal_z);

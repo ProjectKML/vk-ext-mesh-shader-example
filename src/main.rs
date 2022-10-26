@@ -95,7 +95,7 @@ fn main() {
         if pressed_keys.contains(&VirtualKeyCode::D) {
             delta_pos += Vec3::new(1.0, 0.0, 0.0);
         }
-        delta_pos = render_ctx.camera_rig.final_transform.rotation * delta_pos;
+        delta_pos = render_ctx.camera_rig.final_transform.rotation * delta_pos * 2.0;
 
         if pressed_keys.contains(&VirtualKeyCode::Space) {
             delta_pos += Vec3::new(0.0, -1.0, 0.0);

@@ -4,6 +4,7 @@ use anyhow::Result;
 use ash::{prelude::VkResult, vk, Device};
 use vk_mem_alloc::{Allocation, AllocationCreateInfo, Allocator, MemoryUsage};
 
+#[inline]
 pub unsafe fn create_descriptor_pool(device: &Device, pool_sizes: &[vk::DescriptorPoolSize]) -> VkResult<vk::DescriptorPool> {
     device.create_descriptor_pool(
         &vk::DescriptorPoolCreateInfo::default()
@@ -13,6 +14,7 @@ pub unsafe fn create_descriptor_pool(device: &Device, pool_sizes: &[vk::Descript
     )
 }
 
+#[inline]
 pub fn create_shader_module(device: &Device, path: impl AsRef<Path>) -> Result<vk::ShaderModule> {
     let mut file = File::open(path)?;
 
@@ -133,6 +135,7 @@ pub unsafe fn create_depth_stencil_image(device: &Device, allocator: Allocator, 
     Ok((image, allocation, image_view))
 }
 
+#[inline]
 pub unsafe fn destroy_depth_stencil_image(device: &Device, allocator: Allocator, image: vk::Image, allocation: Allocation, image_view: vk::ImageView) {
     vk_mem_alloc::destroy_image(allocator, image, allocation);
     device.destroy_image_view(image_view, None);

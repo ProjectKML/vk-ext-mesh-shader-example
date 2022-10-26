@@ -3,7 +3,7 @@ use std::{mem, path::Path, slice, sync::Arc};
 use anyhow::Result;
 use ash::{vk, Device};
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use meshopt::{DecodePosition, VertexDataAdapter};
 use vk_mem_alloc::Allocator;
 
@@ -112,13 +112,19 @@ impl Mesh {
         meshopt::optimize_overdraw_in_place_decoder(&mut indices, &vertices, 1.01);
         meshopt::optimize_vertex_fetch_in_place(&mut indices, &mut vertices);
 
-        let num_levels = 1;
+        let num_levels = 5;
 
         Ok(Self {
             levels: (0..num_levels)
                 .into_iter()
                 .map(|i| {
-                    let (level_vertices, level_indices) = if i == 0 { (vertices.clone(), indices.clone()) } else { (vertices.clone(), indices.clone()) };
+                    let (level_vertices, level_indices) = if i == 0 {
+                        (vertices.clone(), indices.clone())
+                    } else {
+                        let mut indices = meshopt::simplify_sloppy_decoder(&indices, &vertices, indices.len() >> i, 1e2);
+                        let vertices = meshopt::optimize_vertex_fetch(&mut indices, &vertices);
+                        (vertices, indices)
+                    };
 
                     let meshlets = meshopt::build_meshlets(
                         &level_indices,
@@ -214,6 +220,7 @@ impl MeshLevelBuffers {
 #[derive(Clone)]
 pub struct MeshCollection {
     mesh_buffers: Vec<MeshBuffers>,
+    constants_buffer: Buffer,
     _mesh_level_addresses: Buffer,
     _mesh_addresses: Buffer,
     descriptor_set: vk::DescriptorSet
@@ -228,6 +235,8 @@ impl MeshCollection {
         descriptor_set_layout: vk::DescriptorSetLayout,
         names: impl IntoIterator<Item = P>
     ) -> Result<Self> {
+        let constants_buffer = Buffer::new_uniform(device.clone(), allocator, mem::size_of::<Mat4>() + mem::size_of::<Vec3>()).unwrap();
+
         let mesh_buffers = names
             .into_iter()
             .map(|name| MeshBuffers::new(device.clone(), queue, allocator, name))
@@ -247,16 +256,20 @@ impl MeshCollection {
 
         let mesh_level_addresses_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh_level_addresses)?;
 
-        let mesh_addresses: Vec<_> = mesh_buffers
-            .iter()
-            .enumerate()
-            .flat_map(|(i, mesh_buffers)| {
-                [
-                    mesh_level_addresses_buffer.device_address + (i * 3 * mem::size_of::<vk::DeviceAddress>()) as u64,
-                    mesh_buffers.levels.len() as _
-                ]
-            })
-            .collect();
+        let mesh_addresses: Vec<_> = {
+            let mut offset = 0;
+            mesh_buffers
+                .iter()
+                .flat_map(|mesh_buffers| {
+                    let result = [
+                        mesh_level_addresses_buffer.device_address + (offset * 3 * mem::size_of::<vk::DeviceAddress>()) as u64,
+                        mesh_buffers.levels.len() as _
+                    ];
+                    offset += mesh_buffers.levels.len();
+                    result
+                })
+                .collect()
+        };
 
         let mesh_addresses_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh_addresses)?;
 
@@ -266,16 +279,26 @@ impl MeshCollection {
                 .set_layouts(slice::from_ref(&descriptor_set_layout))
         )?[0];
 
-        let descriptor_buffer_info = vk::DescriptorBufferInfo::default().buffer(mesh_addresses_buffer.buffer).range(mesh_addresses_buffer.size);
+        //Update storage buffer
+        let uniform_buffer_info = vk::DescriptorBufferInfo::default().buffer(constants_buffer.buffer).range(constants_buffer.size);
+        let storage_buffer_info = vk::DescriptorBufferInfo::default().buffer(mesh_addresses_buffer.buffer).range(mesh_addresses_buffer.size);
 
-        let write_descriptor_set = vk::WriteDescriptorSet::default()
-            .dst_set(descriptor_set)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .buffer_info(slice::from_ref(&descriptor_buffer_info));
+        let write_descriptor_sets = [
+            vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(slice::from_ref(&uniform_buffer_info)),
+            vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(slice::from_ref(&storage_buffer_info))
+        ];
 
-        device.update_descriptor_sets(slice::from_ref(&write_descriptor_set), &[]);
+        device.update_descriptor_sets(&write_descriptor_sets, &[]);
 
         Ok(Self {
+            constants_buffer,
             mesh_buffers,
             _mesh_level_addresses: mesh_level_addresses_buffer,
             _mesh_addresses: mesh_addresses_buffer,
@@ -283,7 +306,23 @@ impl MeshCollection {
         })
     }
 
-    pub unsafe fn bind(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer) {
+    pub unsafe fn bind(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, view_projection_matrix: &Mat4, camera_pos: &Vec3) {
+        #[repr(C)]
+        struct Constants {
+            view_projection_matrix: Mat4,
+            camera_pos: Vec3
+        }
+
+        let constants = Constants {
+            view_projection_matrix: *view_projection_matrix,
+            camera_pos: *camera_pos
+        };
+        libc::memcpy(
+            self.constants_buffer.allocation_info.mapped_data,
+            &constants as *const Constants as *const _,
+            mem::size_of::<Constants>()
+        );
+
         ctx.device_loader.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
@@ -294,26 +333,47 @@ impl MeshCollection {
         );
     }
 
-    pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, mvp_matrix: &Mat4, mesh_idx: u32, level_idx: u32) {
+    pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, position: &Vec3, scale: f32, rotation: &Quat, mesh_idx: u32, level_idx: u32) {
+        #[repr(C)]
+        struct Constants {
+            translation_x: f32,
+            translation_y: f32,
+            translation_z: f32,
+            scale: f32,
+            rotation_x: f32,
+            rotation_y: f32,
+            rotation_z: f32,
+            rotation_w: f32,
+            mesh_idx: u32,
+            level_idx: u32
+        }
+
+        let mesh_buffers = &self.mesh_buffers[mesh_idx as usize];
+        let level_idx = level_idx.clamp(0, (mesh_buffers.levels.len() - 1) as u32);
+        println!("{}", level_idx);
+
+        let constants = Constants {
+            translation_x: position.x,
+            translation_y: position.y,
+            translation_z: position.z,
+            scale,
+            rotation_x: rotation.x,
+            rotation_y: rotation.y,
+            rotation_z: rotation.z,
+            rotation_w: rotation.w,
+            mesh_idx,
+            level_idx
+        };
+
         ctx.device_loader.cmd_push_constants(
             command_buffer,
             ctx.pipeline_layout,
             vk::ShaderStageFlags::MESH_EXT,
             0,
-            slice::from_raw_parts(mvp_matrix as *const Mat4 as *const _, mem::size_of::<Mat4>())
+            slice::from_raw_parts(&constants as *const Constants as *const _, mem::size_of::<Constants>())
         );
 
-        let constants = [mesh_idx, level_idx];
-
-        ctx.device_loader.cmd_push_constants(
-            command_buffer,
-            ctx.pipeline_layout,
-            vk::ShaderStageFlags::MESH_EXT,
-            mem::size_of::<Mat4>() as _,
-            slice::from_raw_parts(&constants as *const u32 as *const _, constants.len() * mem::size_of::<u32>())
-        );
-
-        let num_meshlets = self.mesh_buffers[mesh_idx as usize].levels[level_idx as usize].num_meshlets;
+        let num_meshlets = mesh_buffers.levels[level_idx as usize].num_meshlets;
 
         ctx.mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer, ((num_meshlets * 32 + 31) >> 5) as u32, 1, 1)
     }

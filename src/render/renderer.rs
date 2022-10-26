@@ -142,7 +142,7 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
         * Mat4::look_at_lh(final_transform.position, final_transform.position + final_transform.forward(), final_transform.up())
         * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0));
 
-    unsafe { ctx.mesh_collection.bind(ctx, command_buffer) };
+    unsafe { ctx.mesh_collection.bind(ctx, command_buffer, &view_projection_matrix, &final_transform.position) };
 
     for i in 0..7 {
         for j in 0..13 {
@@ -165,17 +165,11 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
                 22.0
             };
 
-            let translation_matrix = Mat4::from_rotation_y(angle) * Mat4::from_translation(Vec3::new(i as f32 * 7.0, 0.0, j as f32 * 5.0)) * Mat4::from_scale(Vec3::splat(scale));
+            let translation = Vec3::new(i as f32 * 7.0, 0.0, j as f32 * 5.0);
+            let rotation = Quat::from_rotation_y(angle);
 
-            render_mesh(ctx, current_frame, mesh_idx, &view_projection_matrix, &translation_matrix);
+            let level_idx = ((final_transform.position.distance(rotation * translation)) * 0.08) as u32;
+            unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &translation, scale as _, &rotation, mesh_idx, level_idx) };
         }
     }
-}
-
-fn render_mesh(ctx: &RenderCtx, current_frame: &Frame, mesh_idx: u32, view_projection_matrix: &Mat4, translation_matrix: &Mat4) {
-    let command_buffer = current_frame.command_buffer;
-
-    let mvp_matrix = *view_projection_matrix * *translation_matrix;
-
-    unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &mvp_matrix, mesh_idx, 0) };
 }

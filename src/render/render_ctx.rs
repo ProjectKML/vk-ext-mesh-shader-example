@@ -11,7 +11,7 @@ use dolly::{
     drivers::Position,
     prelude::{CameraRig, Smooth, YawPitch}
 };
-use glam::{Mat4, Vec3};
+use glam::{Vec3, Vec4};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
@@ -161,18 +161,25 @@ impl RenderCtx {
             unsafe { util::create_descriptor_pool(&device_loader, &[vk::DescriptorPoolSize::default().ty(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(3)]) }.unwrap();
 
         let descriptor_set_layout = unsafe {
-            let descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::default()
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT);
+            let descriptor_set_layout_bindings = [
+                vk::DescriptorSetLayoutBinding::default()
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::MESH_EXT),
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(1)
+                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::MESH_EXT)
+            ];
 
-            device_loader.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(slice::from_ref(&descriptor_set_layout_binding)), None)
+            device_loader.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_set_layout_bindings), None)
         }
         .unwrap();
 
         let push_constant_range = vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::MESH_EXT)
-            .size((mem::size_of::<Mat4>() + mem::size_of::<u32>() * 2) as _);
+            .size((mem::size_of::<Vec4>() * 2 + mem::size_of::<u32>() * 2) as _);
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default()
             .set_layouts(slice::from_ref(&descriptor_set_layout))
@@ -234,6 +241,7 @@ impl RenderCtx {
 
             descriptor_pool,
             descriptor_set_layout,
+
             pipeline_layout,
             pipeline,
 
@@ -256,6 +264,7 @@ impl Drop for RenderCtx {
             self.device_loader.destroy_pipeline_layout(self.pipeline_layout, None);
 
             self.device_loader.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+
             self.device_loader.destroy_descriptor_pool(self.descriptor_pool, None);
 
             util::destroy_depth_stencil_image(&self.device_loader, self.allocator, self.depth_image, self.depth_image_allocation, self.depth_image_view);
