@@ -13,6 +13,7 @@ use dolly::{
 };
 use glam::{Vec3, Vec4};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use shaderc::ShaderKind;
 use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
@@ -201,8 +202,8 @@ impl RenderCtx {
             .push_constant_ranges(slice::from_ref(&push_constant_range));
         let pipeline_layout = unsafe { device_loader.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap();
 
-        let mesh_shader = util::create_shader_module(&device_loader, "example.mesh.spv").unwrap();
-        let fragment_shader = util::create_shader_module(&device_loader, "example.frag.spv").unwrap();
+        let mesh_shader = util::create_shader_module(&device_loader, ShaderKind::Mesh, "main", "shaders/example.mesh.glsl").unwrap();
+        let fragment_shader = util::create_shader_module(&device_loader, ShaderKind::Fragment, "main", "shaders/example.frag.glsl").unwrap();
 
         let pipeline = unsafe {
             util::create_mesh_pipeline(

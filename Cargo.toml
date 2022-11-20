@@ -10,11 +10,12 @@ anyhow = "1.0.65"
 ash = { git = "https://github.com/projectkml/ash" }
 ash-window = { git = "https://github.com/projectkml/ash" }
 bytemuck = "1.12.1"
-dolly = "0.3.1"
+dolly = "0.4.0"
 fast-obj = { git = "https://github.com/projectkml/fast-obj-rs" }
 glam = "0.21.3"
 libc = "0.2.135"
 meshopt = { git = "https://github.com/projectkml/meshopt-rs" }
 raw-window-handle = "0.5.0"
+shaderc = { git = "https://github.com/ProjectKML/shaderc-rs" }
 vk-mem-alloc = { git = "https://github.com/projectkml/vk-mem-alloc-rs" }
 winit = "0.27.4"

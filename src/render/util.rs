@@ -1,7 +1,8 @@
 use std::{ffi::CString, fs::File, io::Read, mem, path::Path, slice};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use ash::{prelude::VkResult, vk, Device};
+use shaderc::{CompileOptions, Compiler, ShaderKind, SpirvVersion};
 use vk_mem_alloc::{Allocation, AllocationCreateInfo, Allocator, MemoryUsage};
 
 #[inline]
@@ -15,14 +16,20 @@ pub unsafe fn create_descriptor_pool(device: &Device, pool_sizes: &[vk::Descript
 }
 
 #[inline]
-pub fn create_shader_module(device: &Device, path: impl AsRef<Path>) -> Result<vk::ShaderModule> {
+pub fn create_shader_module(device: &Device, kind: ShaderKind, entry_point_name: &str, path: impl AsRef<Path>) -> Result<vk::ShaderModule> {
     let mut file = File::open(path)?;
 
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
+    let mut buffer = String::new();
+    file.read_to_string(&mut buffer)?;
+
+    let compiler = Compiler::new().ok_or_else(|| anyhow!("Failed to create compiler"))?;
+    let mut compile_options = CompileOptions::new().ok_or_else(|| anyhow!("Failed to create compile options"))?;
+    compile_options.set_target_spirv(SpirvVersion::V1_6);
+
+    let artifact = compiler.compile_into_spirv(&buffer, kind, "", entry_point_name, Some(&compile_options))?;
 
     unsafe {
-        let shader_module_create_info = vk::ShaderModuleCreateInfo::default().code(slice::from_raw_parts(buffer.as_ptr().cast(), buffer.len() >> 2));
+        let shader_module_create_info = vk::ShaderModuleCreateInfo::default().code(artifact.as_binary());
 
         Ok(device.create_shader_module(&shader_module_create_info, None)?)
     }
