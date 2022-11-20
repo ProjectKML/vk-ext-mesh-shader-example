@@ -1,4 +1,4 @@
-use std::{mem, path::Path, slice, sync::Arc};
+use std::{mem, slice, sync::Arc};
 
 use anyhow::Result;
 use ash::{vk, Device};
@@ -80,48 +80,61 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
-        let mesh = fast_obj::Mesh::new(path)?;
+    pub fn new(source: MeshSource) -> Result<Self> {
+        let (mut vertices, mut indices) = match source {
+            MeshSource::Path(path) => {
+                let mesh = fast_obj::Mesh::new(path)?;
 
-        let mut vertices = vec![Default::default(); mesh.indices().len()];
+                let mut vertices = vec![Default::default(); mesh.indices().len()];
 
-        let positions = mesh.positions();
-        let tex_coords = mesh.texcoords();
-        let normals = mesh.normals();
-        let indices = mesh.indices();
+                let positions = mesh.positions();
+                let tex_coords = mesh.texcoords();
+                let normals = mesh.normals();
+                let indices = mesh.indices();
 
-        for (i, index) in indices.iter().enumerate() {
-            let position_idx = 3 * index.p as usize;
-            let tex_coord_idx = 2 * index.t as usize;
-            let normal_idx = 3 * index.n as usize;
+                for (i, index) in indices.iter().enumerate() {
+                    let position_idx = 3 * index.p as usize;
+                    let tex_coord_idx = 2 * index.t as usize;
+                    let normal_idx = 3 * index.n as usize;
 
-            vertices[i] = Vertex::new(
-                Vec3::new(positions[position_idx], positions[position_idx + 1], positions[position_idx + 2]),
-                Vec2::new(tex_coords[tex_coord_idx], tex_coords[tex_coord_idx + 1]),
-                Vec3::new(normals[normal_idx], normals[normal_idx + 1], normals[normal_idx + 2])
-            );
-        }
+                    vertices[i] = Vertex::new(
+                        Vec3::new(positions[position_idx], positions[position_idx + 1], positions[position_idx + 2]),
+                        Vec2::new(tex_coords[tex_coord_idx], tex_coords[tex_coord_idx + 1]),
+                        Vec3::new(normals[normal_idx], normals[normal_idx + 1], normals[normal_idx + 2])
+                    );
+                }
 
-        let (vertex_count, remap) = meshopt::generate_vertex_remap(&vertices, None);
-        vertices.shrink_to(vertex_count);
+                let (vertex_count, remap) = meshopt::generate_vertex_remap(&vertices, None);
+                vertices.shrink_to(vertex_count);
 
-        let mut vertices = meshopt::remap_vertex_buffer(&vertices, vertex_count, &remap);
-        let mut indices = meshopt::remap_index_buffer(None, indices.len(), &remap);
+                (
+                    meshopt::remap_vertex_buffer(&vertices, vertex_count, &remap),
+                    meshopt::remap_index_buffer(None, indices.len(), &remap)
+                )
+            }
+            MeshSource::Builtin(vertices, indices) => (vertices, indices)
+        };
 
         meshopt::optimize_vertex_cache_in_place(&mut indices, vertices.len());
         meshopt::optimize_overdraw_in_place_decoder(&mut indices, &vertices, 1.01);
         meshopt::optimize_vertex_fetch_in_place(&mut indices, &mut vertices);
 
-        let num_levels = 5;
+        let num_levels = 12;
 
         Ok(Self {
             levels: (0..num_levels)
                 .into_iter()
-                .map(|i| {
+                .filter_map(|i| {
                     let (level_vertices, level_indices) = if i == 0 {
                         (vertices.clone(), indices.clone())
                     } else {
-                        let mut indices = meshopt::simplify_sloppy_decoder(&indices, &vertices, indices.len() >> i, 1e2);
+                        let target_count = (indices.len() as f64 * 0.75f64.powf(i as f64)) as usize;
+
+                        if target_count < 100 {
+                            return None
+                        }
+
+                        let mut indices = meshopt::simplify_sloppy_decoder(&indices, &vertices, target_count, 1e2);
                         let vertices = meshopt::optimize_vertex_fetch(&mut indices, &vertices);
                         (vertices, indices)
                     };
@@ -163,11 +176,11 @@ impl Mesh {
                         })
                         .collect();
 
-                    MeshLevel {
+                    Some(MeshLevel {
                         vertices: level_vertices,
                         meshlets,
                         meshlet_data
-                    }
+                    })
                 })
                 .collect()
         })
@@ -181,8 +194,8 @@ pub struct MeshBuffers {
 
 impl MeshBuffers {
     #[inline]
-    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, path: impl AsRef<Path>) -> Result<Self> {
-        let mesh = Mesh::new(path)?;
+    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, source: MeshSource) -> Result<Self> {
+        let mesh = Mesh::new(source)?;
 
         let levels = mesh
             .levels
@@ -217,6 +230,12 @@ impl MeshLevelBuffers {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum MeshSource {
+    Path(&'static str),
+    Builtin(Vec<Vertex>, Vec<u32>)
+}
+
 #[derive(Clone)]
 pub struct MeshCollection {
     mesh_buffers: Vec<MeshBuffers>,
@@ -227,19 +246,19 @@ pub struct MeshCollection {
 }
 
 impl MeshCollection {
-    pub unsafe fn new<P: AsRef<Path>>(
+    pub unsafe fn new(
         device: &Arc<Device>,
         queue: vk::Queue,
         allocator: Allocator,
         descriptor_pool: vk::DescriptorPool,
         descriptor_set_layout: vk::DescriptorSetLayout,
-        names: impl IntoIterator<Item = P>
+        sources: impl IntoIterator<Item = MeshSource>
     ) -> Result<Self> {
         let constants_buffer = Buffer::new_uniform(device.clone(), allocator, mem::size_of::<Mat4>() + mem::size_of::<Vec3>()).unwrap();
 
-        let mesh_buffers = names
+        let mesh_buffers = sources
             .into_iter()
-            .map(|name| MeshBuffers::new(device.clone(), queue, allocator, name))
+            .map(|source| MeshBuffers::new(device.clone(), queue, allocator, source))
             .collect::<Result<Vec<_>>>()?;
 
         let mesh_level_addresses: Vec<_> = mesh_buffers
@@ -381,5 +400,9 @@ impl MeshCollection {
             1,
             1
         )
+    }
+
+    pub fn mesh_buffers_at(&self, idx: usize) -> &MeshBuffers {
+        &self.mesh_buffers[idx]
     }
 }

@@ -11,13 +11,18 @@ use dolly::{
     drivers::Position,
     prelude::{CameraRig, Smooth, YawPitch}
 };
-use glam::{Vec3, Vec4};
+use glam::{Vec2, Vec3, Vec4};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use shaderc::ShaderKind;
 use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
-use crate::render::{frame, frame::Frame, mesh::MeshCollection, util};
+use crate::render::{
+    frame,
+    frame::Frame,
+    mesh::{MeshCollection, MeshSource, Vertex},
+    util
+};
 
 pub const WIDTH: u32 = 1600;
 pub const HEIGHT: u32 = 900;
@@ -239,7 +244,20 @@ impl RenderCtx {
                     allocator,
                     descriptor_pool,
                     descriptor_set_layout,
-                    ["dragon.obj", "armadillo.obj", "bunny.obj"]
+                    [
+                        MeshSource::Builtin(
+                            vec![
+                                Vertex::new(Vec3::new(0.0, 0.0, 0.0), Vec2::new(0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
+                                Vertex::new(Vec3::new(1.0, 0.0, 0.0), Vec2::new(1.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
+                                Vertex::new(Vec3::new(1.0, 0.0, 1.0), Vec2::new(1.0, 1.0), Vec3::new(0.0, 1.0, 0.0)),
+                                Vertex::new(Vec3::new(0.0, 0.0, 1.0), Vec2::new(0.0, 1.0), Vec3::new(0.0, 1.0, 0.0)),
+                            ],
+                            vec![0, 1, 3, 3, 1, 2]
+                        ),
+                        MeshSource::Path("dragon.obj"),
+                        MeshSource::Path("armadillo.obj"),
+                        MeshSource::Path("bunny.obj")
+                    ]
                 )
             }
             .unwrap()

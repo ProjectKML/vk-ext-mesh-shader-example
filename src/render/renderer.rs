@@ -144,6 +144,11 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
 
     unsafe { ctx.mesh_collection.bind(ctx, command_buffer, &view_projection_matrix, &final_transform.position) };
 
+    unsafe {
+        ctx.mesh_collection
+            .draw_mesh(ctx, command_buffer, &Vec3::new(-120.43, -2.325, -160.1), 280.20, &Quat::IDENTITY, 0, 0)
+    };
+
     for i in 0..13 {
         for j in 0..25 {
             let angle = {
@@ -156,20 +161,22 @@ fn render_frame_inner(ctx: &RenderCtx, current_frame: &Frame) {
                 (hash_code & 255) as f32 / 255.0 * std::f32::consts::PI
             };
 
-            let mesh_idx = (i + j) % 3;
-            let scale = if mesh_idx == 0 {
-                1.0
-            } else if mesh_idx == 1 {
-                0.1
+            let mesh_idx = ((i + j) % 3) + 1;
+            let (scale, y_offset) = if mesh_idx == 1 {
+                (1.0, -2.6)
+            } else if mesh_idx == 2 {
+                (0.1, 2.8)
             } else {
-                22.0
+                (22.0, -3.25)
             };
 
-            let translation = Vec3::new(i as f32 * 7.0, 0.0, j as f32 * 5.0);
+            let translation = Vec3::new(i as f32 * 7.0, y_offset, j as f32 * 5.0);
             let rotation = Quat::from_rotation_y(angle);
 
-            let level_idx = ((final_transform.position.distance(rotation * translation)) * 0.08) as u32;
-            unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &translation, scale as _, &rotation, mesh_idx, level_idx) };
+            let max_level_idx = ctx.mesh_collection.mesh_buffers_at(mesh_idx).levels.len();
+
+            let level_idx = (((final_transform.position.distance(rotation * translation)) * 0.08) as u32).min(max_level_idx as _);
+            unsafe { ctx.mesh_collection.draw_mesh(ctx, command_buffer, &translation, scale as _, &rotation, mesh_idx as _, level_idx) };
         }
     }
 }
