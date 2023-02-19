@@ -10,6 +10,7 @@ anyhow = "1.0.65"
 ash = { git = "https://github.com/projectkml/ash" }
 ash-window = { git = "https://github.com/projectkml/ash" }
 bytemuck = "1.12.1"
+bitstream-io = "1.6.0"
 dolly = "0.4.0"
 fast-obj = { git = "https://github.com/projectkml/fast-obj-rs" }
 glam = "0.22.0"

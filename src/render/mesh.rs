@@ -7,14 +7,17 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use meshopt::{DecodePosition, VertexDataAdapter};
 use vk_mem_alloc::Allocator;
 
-use crate::{render::buffer::Buffer, RenderCtx};
+use crate::{
+    render::{buffer::Buffer, mesh_util::AABB},
+    RenderCtx,
+};
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
 pub struct Vertex {
     pub position: Vec3,
     pub tex_coord: Vec2,
-    pub normal: Vec3
+    pub normal: Vec3,
 }
 
 unsafe impl Zeroable for Vertex {}
@@ -23,7 +26,11 @@ unsafe impl Pod for Vertex {}
 impl Vertex {
     #[inline]
     pub fn new(position: Vec3, tex_coord: Vec2, normal: Vec3) -> Self {
-        Self { position, tex_coord, normal }
+        Self {
+            position,
+            tex_coord,
+            normal,
+        }
     }
 }
 
@@ -37,9 +44,10 @@ impl DecodePosition for Vertex {
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
 pub struct Meshlet {
+    pub aabb: AABB,
     pub data_offset: u32,
     pub vertex_count: u32,
-    pub triangle_count: u32
+    pub triangle_count: u32,
 }
 
 unsafe impl Zeroable for Meshlet {}
@@ -47,11 +55,12 @@ unsafe impl Pod for Meshlet {}
 
 impl Meshlet {
     #[inline]
-    pub fn new(data_offset: u32, vertex_count: u32, triangle_count: u32) -> Self {
+    pub fn new(aabb: AABB, data_offset: u32, vertex_count: u32, triangle_count: u32) -> Self {
         Self {
+            aabb,
             data_offset,
             vertex_count,
-            triangle_count
+            triangle_count,
         }
     }
 }
@@ -64,19 +73,23 @@ const CONE_WEIGHT: f32 = 0.0;
 pub struct MeshLevel {
     pub vertices: Vec<Vertex>,
     pub meshlets: Vec<Meshlet>,
-    pub meshlet_data: Vec<u32>
+    pub meshlet_data: Vec<u32>,
 }
 
 impl MeshLevel {
     #[inline]
     pub fn new(vertices: Vec<Vertex>, meshlets: Vec<Meshlet>, meshlet_data: Vec<u32>) -> Self {
-        Self { vertices, meshlets, meshlet_data }
+        Self {
+            vertices,
+            meshlets,
+            meshlet_data,
+        }
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Mesh {
-    pub levels: Vec<MeshLevel>
+    pub levels: Vec<MeshLevel>,
 }
 
 impl Mesh {
@@ -98,9 +111,17 @@ impl Mesh {
                     let normal_idx = 3 * index.n as usize;
 
                     vertices[i] = Vertex::new(
-                        Vec3::new(positions[position_idx], positions[position_idx + 1], positions[position_idx + 2]),
+                        Vec3::new(
+                            positions[position_idx],
+                            positions[position_idx + 1],
+                            positions[position_idx + 2],
+                        ),
                         Vec2::new(tex_coords[tex_coord_idx], tex_coords[tex_coord_idx + 1]),
-                        Vec3::new(normals[normal_idx], normals[normal_idx + 1], normals[normal_idx + 2])
+                        Vec3::new(
+                            normals[normal_idx],
+                            normals[normal_idx + 1],
+                            normals[normal_idx + 2],
+                        ),
                     );
                 }
 
@@ -109,10 +130,10 @@ impl Mesh {
 
                 (
                     meshopt::remap_vertex_buffer(&vertices, vertex_count, &remap),
-                    meshopt::remap_index_buffer(None, indices.len(), &remap)
+                    meshopt::remap_index_buffer(None, indices.len(), &remap),
                 )
             }
-            MeshSource::Builtin(vertices, indices) => (vertices, indices)
+            MeshSource::Builtin(vertices, indices) => (vertices, indices),
         };
 
         meshopt::optimize_vertex_cache_in_place(&mut indices, vertices.len());
@@ -134,20 +155,35 @@ impl Mesh {
                             return None
                         }
 
-                        let mut indices = meshopt::simplify_sloppy_decoder(&indices, &vertices, target_count, 1e2);
+                        let mut indices = meshopt::simplify_sloppy_decoder(
+                            &indices,
+                            &vertices,
+                            target_count,
+                            1e2,
+                        );
                         let vertices = meshopt::optimize_vertex_fetch(&mut indices, &vertices);
                         (vertices, indices)
                     };
 
                     let meshlets = meshopt::build_meshlets(
                         &level_indices,
-                        &VertexDataAdapter::new(bytemuck::cast_slice(&level_vertices), mem::size_of::<Vertex>(), 0).unwrap(),
+                        &VertexDataAdapter::new(
+                            bytemuck::cast_slice(&level_vertices),
+                            mem::size_of::<Vertex>(),
+                            0,
+                        )
+                        .unwrap(),
                         MAX_VERTICES,
                         MAX_TRIANGLES,
-                        CONE_WEIGHT
+                        CONE_WEIGHT,
                     );
 
-                    let num_meshlet_data = meshlets.iter().map(|meshlet| meshlet.vertices.len() + ((meshlet.triangles.len() * 3 + 3) >> 2)).sum();
+                    let num_meshlet_data = meshlets
+                        .iter()
+                        .map(|meshlet| {
+                            meshlet.vertices.len() + ((meshlet.triangles.len() * 3 + 3) >> 2)
+                        })
+                        .sum();
 
                     let mut meshlet_data = vec![0; num_meshlet_data];
 
@@ -165,42 +201,82 @@ impl Mesh {
                             let num_packed_indices = (meshlet.triangles.len() + 3) >> 2;
                             for j in 0..num_packed_indices {
                                 let triangle_offset = j << 2;
-                                meshlet_data[index] = (meshlet.triangles[triangle_offset] as u32) << 24
-                                    | (meshlet.triangles.get(triangle_offset + 1).copied().unwrap_or_default() as u32) << 16
-                                    | (meshlet.triangles.get(triangle_offset + 2).copied().unwrap_or_default() as u32) << 8
-                                    | (meshlet.triangles.get(triangle_offset + 3).copied().unwrap_or_default() as u32);
+                                meshlet_data[index] = (meshlet.triangles[triangle_offset] as u32)
+                                    << 24
+                                    | (meshlet
+                                        .triangles
+                                        .get(triangle_offset + 1)
+                                        .copied()
+                                        .unwrap_or_default()
+                                        as u32)
+                                        << 16
+                                    | (meshlet
+                                        .triangles
+                                        .get(triangle_offset + 2)
+                                        .copied()
+                                        .unwrap_or_default()
+                                        as u32)
+                                        << 8
+                                    | (meshlet
+                                        .triangles
+                                        .get(triangle_offset + 3)
+                                        .copied()
+                                        .unwrap_or_default()
+                                        as u32);
                                 index += 1;
                             }
 
-                            Meshlet::new(data_offset as _, meshlet.vertices.len() as _, (meshlet.triangles.len() / 3) as _)
+                            let aabb = AABB::from_vertices(
+                                meshlet.vertices.iter().map(|i| &vertices[*i as usize]),
+                            );
+                            Meshlet::new(
+                                aabb,
+                                data_offset as _,
+                                meshlet.vertices.len() as _,
+                                (meshlet.triangles.len() / 3) as _,
+                            )
                         })
                         .collect();
 
                     Some(MeshLevel {
                         vertices: level_vertices,
                         meshlets,
-                        meshlet_data
+                        meshlet_data,
                     })
                 })
-                .collect()
+                .collect(),
         })
     }
 }
 
 #[derive(Clone)]
 pub struct MeshBuffers {
-    pub levels: Vec<MeshLevelBuffers>
+    pub levels: Vec<MeshLevelBuffers>,
 }
 
 impl MeshBuffers {
     #[inline]
-    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, source: MeshSource) -> Result<Self> {
+    pub unsafe fn new(
+        device: Arc<Device>,
+        queue: vk::Queue,
+        allocator: Allocator,
+        source: MeshSource,
+    ) -> Result<Self> {
         let mesh = Mesh::new(source)?;
 
         let levels = mesh
             .levels
             .iter()
-            .map(|level| MeshLevelBuffers::new(device.clone(), queue, allocator, &level.vertices, &level.meshlets, &level.meshlet_data))
+            .map(|level| {
+                MeshLevelBuffers::new(
+                    device.clone(),
+                    queue,
+                    allocator,
+                    &level.vertices,
+                    &level.meshlets,
+                    &level.meshlet_data,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self { levels })
     }
@@ -211,12 +287,19 @@ pub struct MeshLevelBuffers {
     pub vertex_buffer: Buffer,
     pub meshlet_buffer: Buffer,
     pub meshlet_data_buffer: Buffer,
-    pub num_meshlets: usize
+    pub num_meshlets: usize,
 }
 
 impl MeshLevelBuffers {
     #[inline]
-    pub unsafe fn new(device: Arc<Device>, queue: vk::Queue, allocator: Allocator, vertices: &[Vertex], meshlets: &[Meshlet], meshlet_data: &[u32]) -> Result<Self> {
+    pub unsafe fn new(
+        device: Arc<Device>,
+        queue: vk::Queue,
+        allocator: Allocator,
+        vertices: &[Vertex],
+        meshlets: &[Meshlet],
+        meshlet_data: &[u32],
+    ) -> Result<Self> {
         let vertex_buffer = Buffer::new_device_local(device.clone(), queue, allocator, vertices)?;
         let meshlet_buffer = Buffer::new_device_local(device.clone(), queue, allocator, meshlets)?;
         let meshlet_data_buffer = Buffer::new_device_local(device, queue, allocator, meshlet_data)?;
@@ -225,7 +308,7 @@ impl MeshLevelBuffers {
             vertex_buffer,
             meshlet_buffer,
             meshlet_data_buffer,
-            num_meshlets: meshlets.len()
+            num_meshlets: meshlets.len(),
         })
     }
 }
@@ -233,7 +316,7 @@ impl MeshLevelBuffers {
 #[derive(Clone, Debug)]
 pub enum MeshSource {
     Path(&'static str),
-    Builtin(Vec<Vertex>, Vec<u32>)
+    Builtin(Vec<Vertex>, Vec<u32>),
 }
 
 #[derive(Clone)]
@@ -242,7 +325,7 @@ pub struct MeshCollection {
     constants_buffer: Buffer,
     _mesh_level_addresses: Buffer,
     _mesh_addresses: Buffer,
-    descriptor_set: vk::DescriptorSet
+    descriptor_set: vk::DescriptorSet,
 }
 
 impl MeshCollection {
@@ -252,9 +335,14 @@ impl MeshCollection {
         allocator: Allocator,
         descriptor_pool: vk::DescriptorPool,
         descriptor_set_layout: vk::DescriptorSetLayout,
-        sources: impl IntoIterator<Item = MeshSource>
+        sources: impl IntoIterator<Item = MeshSource>,
     ) -> Result<Self> {
-        let constants_buffer = Buffer::new_uniform(device.clone(), allocator, mem::size_of::<Mat4>() + mem::size_of::<Vec3>()).unwrap();
+        let constants_buffer = Buffer::new_uniform(
+            device.clone(),
+            allocator,
+            mem::size_of::<Mat4>() + mem::size_of::<Vec3>(),
+        )
+        .unwrap();
 
         let mesh_buffers = sources
             .into_iter()
@@ -268,12 +356,14 @@ impl MeshCollection {
                 [
                     level_buffer.vertex_buffer.device_address,
                     level_buffer.meshlet_buffer.device_address,
-                    level_buffer.meshlet_data_buffer.device_address
+                    level_buffer.meshlet_data_buffer.device_address,
+                    0,
                 ]
             })
             .collect();
 
-        let mesh_level_addresses_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh_level_addresses)?;
+        let mesh_level_addresses_buffer =
+            Buffer::new_device_local(device.clone(), queue, allocator, &mesh_level_addresses)?;
 
         let mesh_addresses: Vec<_> = {
             let mut offset = 0;
@@ -281,8 +371,9 @@ impl MeshCollection {
                 .iter()
                 .flat_map(|mesh_buffers| {
                     let result = [
-                        mesh_level_addresses_buffer.device_address + (offset * 3 * mem::size_of::<vk::DeviceAddress>()) as u64,
-                        mesh_buffers.levels.len() as _
+                        mesh_level_addresses_buffer.device_address
+                            + (offset * (4 * mem::size_of::<vk::DeviceAddress>())) as u64,
+                        mesh_buffers.levels.len() as _,
                     ];
                     offset += mesh_buffers.levels.len();
                     result
@@ -290,17 +381,22 @@ impl MeshCollection {
                 .collect()
         };
 
-        let mesh_addresses_buffer = Buffer::new_device_local(device.clone(), queue, allocator, &mesh_addresses)?;
+        let mesh_addresses_buffer =
+            Buffer::new_device_local(device.clone(), queue, allocator, &mesh_addresses)?;
 
         let descriptor_set = device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(descriptor_pool)
-                .set_layouts(slice::from_ref(&descriptor_set_layout))
+                .set_layouts(slice::from_ref(&descriptor_set_layout)),
         )?[0];
 
         //Update storage buffer
-        let uniform_buffer_info = vk::DescriptorBufferInfo::default().buffer(constants_buffer.buffer).range(constants_buffer.size);
-        let storage_buffer_info = vk::DescriptorBufferInfo::default().buffer(mesh_addresses_buffer.buffer).range(mesh_addresses_buffer.size);
+        let uniform_buffer_info = vk::DescriptorBufferInfo::default()
+            .buffer(constants_buffer.buffer)
+            .range(constants_buffer.size);
+        let storage_buffer_info = vk::DescriptorBufferInfo::default()
+            .buffer(mesh_addresses_buffer.buffer)
+            .range(mesh_addresses_buffer.size);
 
         let write_descriptor_sets = [
             vk::WriteDescriptorSet::default()
@@ -311,7 +407,7 @@ impl MeshCollection {
                 .dst_set(descriptor_set)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(slice::from_ref(&storage_buffer_info))
+                .buffer_info(slice::from_ref(&storage_buffer_info)),
         ];
 
         device.update_descriptor_sets(&write_descriptor_sets, &[]);
@@ -321,39 +417,54 @@ impl MeshCollection {
             mesh_buffers,
             _mesh_level_addresses: mesh_level_addresses_buffer,
             _mesh_addresses: mesh_addresses_buffer,
-            descriptor_set
+            descriptor_set,
         })
     }
 
-    pub unsafe fn bind(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, view_projection_matrix: &Mat4, camera_pos: &Vec3) {
+    pub unsafe fn bind(
+        &self,
+        ctx: &RenderCtx,
+        command_buffer: vk::CommandBuffer,
+        view_projection_matrix: &Mat4,
+        camera_pos: &Vec3,
+    ) {
         #[repr(C)]
         struct Constants {
             view_projection_matrix: Mat4,
-            camera_pos: Vec3
+            camera_pos: Vec3,
         }
 
         let constants = Constants {
             view_projection_matrix: *view_projection_matrix,
-            camera_pos: *camera_pos
+            camera_pos: *camera_pos,
         };
         libc::memcpy(
             self.constants_buffer.allocation_info.mapped_data,
             &constants as *const Constants as *const _,
-            mem::size_of::<Constants>()
+            mem::size_of::<Constants>(),
         );
 
         ctx.device_loader.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
-            ctx.pipeline_layout,
+            ctx.geometry_pipeline_layout,
             0,
             slice::from_ref(&self.descriptor_set),
-            &[]
+            &[],
         );
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn draw_mesh(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer, position: &Vec3, scale: f32, rotation: &Quat, mesh_idx: u32, level_idx: u32) {
+    pub unsafe fn draw_mesh(
+        &self,
+        ctx: &RenderCtx,
+        command_buffer: vk::CommandBuffer,
+        position: &Vec3,
+        scale: f32,
+        rotation: &Quat,
+        mesh_idx: u32,
+        level_idx: u32,
+    ) {
         #[repr(C)]
         struct Constants {
             translation_x: f32,
@@ -365,7 +476,7 @@ impl MeshCollection {
             rotation_z: f32,
             rotation_w: f32,
             mesh_idx: u32,
-            level_idx: u32
+            level_idx: u32,
         }
 
         let mesh_buffers = &self.mesh_buffers[mesh_idx as usize];
@@ -381,24 +492,28 @@ impl MeshCollection {
             rotation_z: rotation.z,
             rotation_w: rotation.w,
             mesh_idx,
-            level_idx
+            level_idx,
         };
 
         ctx.device_loader.cmd_push_constants(
             command_buffer,
-            ctx.pipeline_layout,
+            ctx.geometry_pipeline_layout,
             vk::ShaderStageFlags::MESH_EXT,
             0,
-            slice::from_raw_parts(&constants as *const Constants as *const _, mem::size_of::<Constants>())
+            slice::from_raw_parts(
+                &constants as *const Constants as *const _,
+                mem::size_of::<Constants>(),
+            ),
         );
 
         let num_meshlets = mesh_buffers.levels[level_idx as usize].num_meshlets;
 
         ctx.mesh_shader_loader.cmd_draw_mesh_tasks(
             command_buffer,
-            ((num_meshlets * ctx.workgroup_size as usize + ctx.workgroup_size as usize - 1) / ctx.workgroup_size as usize) as u32,
+            ((num_meshlets * ctx.workgroup_size as usize + ctx.workgroup_size as usize - 1)
+                / ctx.workgroup_size as usize) as u32,
             1,
-            1
+            1,
         )
     }
 

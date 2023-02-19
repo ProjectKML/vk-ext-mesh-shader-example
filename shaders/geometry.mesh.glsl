@@ -4,51 +4,15 @@
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_mesh_shader : require
 
-layout(local_size_x_id = 0) in;
+layout(local_size_x = LOCAL_SIZE_X) in;
 layout(max_vertices = 64, max_primitives = 124, triangles) out;
+
+#include "types.glsl"
+#include "utils.glsl"
 
 layout(location = 0) out vec2[] out_tex_coords;
 layout(location = 1) out vec3[] out_normals;
 layout(location = 2) out vec3[] out_colors;
-
-struct Vertex {
-    float position_x, position_y, position_z;
-    float tex_coord_x, tex_coord_y;
-    float normal_x, normal_y, normal_z;
-};
-
-struct Meshlet {
-    uint data_offset;
-    uint vertex_count;
-    uint triangle_count;
-};
-
-layout(buffer_reference, std430, buffer_reference_align = 16) buffer VertexRef {
-    Vertex value;
-};
-
-layout(buffer_reference, std430, buffer_reference_align = 4) buffer MeshletRef {
-    Meshlet value;
-};
-
-layout(buffer_reference, std430, buffer_reference_align = 4) buffer MeshletDataRef {
-    uint value;
-};
-
-struct MeshLevel {
-    VertexRef vertices;
-    MeshletRef meshlets;
-    MeshletDataRef meshlet_data;
-};
-
-layout(buffer_reference, std430, buffer_reference_align = 4) buffer MeshLevelRef {
-    MeshLevel value;
-};
-
-struct Mesh {
-    MeshLevelRef levels;
-    uint num_levels;
-};
 
 layout(set = 0, binding = 0) uniform Constants {
 	mat4 view_projection_matrix;
@@ -65,26 +29,6 @@ layout(push_constant) uniform PushConstants {
     uint mesh_idx;
     uint level_idx;
 } push_constants;
-
-uint murmur_hash_11(uint src) {
-    const uint M = 0x5bd1e995;
-    uint h = 1190494759;
-    src *= M;
-    src ^= src >> 24;
-    src *= M;
-    h *= M;
-    h ^= src;
-    h ^= h >> 13;
-    h *= M;
-    h ^= h >> 15;
-
-    return h;
-}
-
-vec3 murmur_hash_11_color(uint src) {
-    const uint hash = murmur_hash_11(src);
-    return vec3(float((hash >> 16) & 0xFF), float((hash >> 8) & 0xFF), float(hash & 0xFF)) / 256.0;
-}
 
 uint get_index(MeshletDataRef meshlet_data, uint index_offset, uint index) {
     const uint byte_offset = (3 - (index & 3)) << 3;

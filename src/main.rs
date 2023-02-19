@@ -1,18 +1,54 @@
 use std::collections::HashSet;
 
-use dolly::prelude::{Position, YawPitch};
+use dolly::{
+    drivers::{Position, YawPitch},
+    rig::CameraRig,
+};
 use glam::Vec3;
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{DeviceEvent, ElementState, Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     platform::run_return::EventLoopExtRunReturn,
-    window::{CursorGrabMode, WindowBuilder}
+    window::{CursorGrabMode, WindowBuilder},
 };
 
 use crate::render::{render_ctx::RenderCtx, renderer};
 
 pub mod render;
+
+fn update_camera_rig(
+    pressed_keys: &HashSet<VirtualKeyCode>,
+    camera_rig: &mut CameraRig,
+    delta_time: f32,
+) {
+    let mut delta_pos = Vec3::ZERO;
+    if pressed_keys.contains(&VirtualKeyCode::W) {
+        delta_pos += Vec3::new(0.0, 0.0, 1.0);
+    }
+    if pressed_keys.contains(&VirtualKeyCode::A) {
+        delta_pos += Vec3::new(-1.0, 0.0, 0.0);
+    }
+    if pressed_keys.contains(&VirtualKeyCode::S) {
+        delta_pos += Vec3::new(0.0, 0.0, -1.0);
+    }
+    if pressed_keys.contains(&VirtualKeyCode::D) {
+        delta_pos += Vec3::new(1.0, 0.0, 0.0);
+    }
+    delta_pos = camera_rig.final_transform.rotation * delta_pos * 2.0;
+
+    if pressed_keys.contains(&VirtualKeyCode::Space) {
+        delta_pos += Vec3::new(0.0, -1.0, 0.0);
+    }
+    if pressed_keys.contains(&VirtualKeyCode::LShift) {
+        delta_pos += Vec3::new(0.0, 1.0, 0.0);
+    }
+
+    camera_rig
+        .driver_mut::<Position>()
+        .translate(-delta_pos * delta_time * 10.0);
+    camera_rig.update(delta_time);
+}
 
 fn main() {
     let mut event_loop = EventLoop::new();
@@ -74,7 +110,9 @@ fn main() {
                 Event::DeviceEvent { event, .. } => {
                     if let DeviceEvent::MouseMotion { delta } = event {
                         let camera_rig = &mut render_ctx.camera_rig;
-                        camera_rig.driver_mut::<YawPitch>().rotate_yaw_pitch(0.3 * delta.0 as f32, -0.3 * delta.1 as f32);
+                        camera_rig
+                            .driver_mut::<YawPitch>()
+                            .rotate_yaw_pitch(0.3 * delta.0 as f32, -0.3 * delta.1 as f32);
                         camera_rig.update(delta_time);
                     }
                 }
@@ -82,33 +120,9 @@ fn main() {
             }
         });
 
-        let mut delta_pos = Vec3::ZERO;
-        if pressed_keys.contains(&VirtualKeyCode::W) {
-            delta_pos += Vec3::new(0.0, 0.0, 1.0);
-        }
-        if pressed_keys.contains(&VirtualKeyCode::A) {
-            delta_pos += Vec3::new(-1.0, 0.0, 0.0);
-        }
-        if pressed_keys.contains(&VirtualKeyCode::S) {
-            delta_pos += Vec3::new(0.0, 0.0, -1.0);
-        }
-        if pressed_keys.contains(&VirtualKeyCode::D) {
-            delta_pos += Vec3::new(1.0, 0.0, 0.0);
-        }
-        delta_pos = render_ctx.camera_rig.final_transform.rotation * delta_pos * 2.0;
+        update_camera_rig(&pressed_keys, &mut render_ctx.camera_rig, delta_time);
 
-        if pressed_keys.contains(&VirtualKeyCode::Space) {
-            delta_pos += Vec3::new(0.0, -1.0, 0.0);
-        }
-        if pressed_keys.contains(&VirtualKeyCode::LShift) {
-            delta_pos += Vec3::new(0.0, 1.0, 0.0);
-        }
-
-        let camera_rig = &mut render_ctx.camera_rig;
-        camera_rig.driver_mut::<Position>().translate(-delta_pos * delta_time * 10.0);
-        camera_rig.update(delta_time);
-
-        renderer::render_frame(&render_ctx, &mut frame_index);
+        renderer::render_frame(&mut render_ctx, &mut frame_index);
 
         frame_count += 1;
         frame_index = frame_count % render_ctx.frames.len();
