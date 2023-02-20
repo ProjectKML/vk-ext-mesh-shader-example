@@ -19,5 +19,10 @@ layout(set = 0, binding = 3) buffer NumVisibleInstances {
 };
 
 void main() {
+    const uint giid = gl_GlobalInvocationID.x;
+    if(giid.x >= num_instances) {
+        return;
+    }
+
 
 }

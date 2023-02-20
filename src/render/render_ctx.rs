@@ -18,11 +18,13 @@ use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
 use crate::render::{
+    buffer::Buffer,
     frame,
     frame::Frame,
     mesh::{MeshCollection, MeshSource, Vertex},
     query_pool::QueryPool,
     utils,
+    utils::globals::GlobalsBuffers,
 };
 
 pub const WIDTH: u32 = 1600;
@@ -56,6 +58,8 @@ pub struct RenderCtx {
 
     pub descriptor_pool: vk::DescriptorPool,
 
+    pub globals_buffers: ManuallyDrop<GlobalsBuffers>,
+
     pub geometry_descriptor_set_layout: vk::DescriptorSetLayout,
     pub geometry_pipeline_layout: vk::PipelineLayout,
     pub geometry_pipeline: vk::Pipeline,
@@ -72,26 +76,20 @@ pub struct RenderCtx {
 
 fn create_geometry_pipeline(
     device_loader: &Device,
+    globals_buffers: &GlobalsBuffers,
     physical_device_mesh_shader_properties: &vk::PhysicalDeviceMeshShaderPropertiesEXT,
 ) -> (vk::DescriptorSetLayout, vk::PipelineLayout, vk::Pipeline) {
     //Create descriptor set layout
-    let descriptor_set_layout_bindings = [
-        vk::DescriptorSetLayoutBinding::default()
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::MESH_EXT),
-        vk::DescriptorSetLayoutBinding::default()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::MESH_EXT),
-    ];
+    let descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::default()
+        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::MESH_EXT);
+
+    let descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::default()
+        .bindings(slice::from_ref(&descriptor_set_layout_binding));
 
     let descriptor_set_layout = unsafe {
-        device_loader.create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::default().bindings(&descriptor_set_layout_bindings),
-            None,
-        )
+        device_loader.create_descriptor_set_layout(&descriptor_set_layout_create_info, None)
     }
     .unwrap();
 
@@ -100,8 +98,10 @@ fn create_geometry_pipeline(
         .stage_flags(vk::ShaderStageFlags::MESH_EXT)
         .size((mem::size_of::<Vec4>() * 2 + mem::size_of::<u32>() * 2) as _);
 
+    let descriptor_set_layouts = [globals_buffers.descriptor_set_layout, descriptor_set_layout];
+
     let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default()
-        .set_layouts(slice::from_ref(&descriptor_set_layout))
+        .set_layouts(&descriptor_set_layouts)
         .push_constant_ranges(slice::from_ref(&push_constant_range));
     let pipeline_layout =
         unsafe { device_loader.create_pipeline_layout(&pipeline_layout_create_info, None) }
@@ -324,8 +324,14 @@ impl RenderCtx {
         }
         .unwrap();
 
+        let globals_buffers = GlobalsBuffers::new(&device_loader, allocator, descriptor_pool);
+
         let (geometry_descriptor_set_layout, geometry_pipeline_layout, geometry_pipeline) =
-            create_geometry_pipeline(&device_loader, &physical_device_mesh_shader_properties);
+            create_geometry_pipeline(
+                &device_loader,
+                &globals_buffers,
+                &physical_device_mesh_shader_properties,
+            );
 
         let frames: Vec<_> = (0..frame::NUM_FRAMES)
             .into_iter()
@@ -414,6 +420,8 @@ impl RenderCtx {
 
             descriptor_pool,
 
+            globals_buffers: ManuallyDrop::new(globals_buffers),
+
             geometry_descriptor_set_layout,
             geometry_pipeline_layout,
             geometry_pipeline,
@@ -450,6 +458,8 @@ impl Drop for RenderCtx {
                 self.geometry_pipeline_layout,
                 self.geometry_pipeline,
             );
+
+            ManuallyDrop::drop(&mut self.globals_buffers);
 
             self.device_loader
                 .destroy_descriptor_pool(self.descriptor_pool, None);

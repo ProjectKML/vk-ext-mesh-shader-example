@@ -10,6 +10,7 @@ use glam::{Mat4, Quat, Vec3};
 use crate::render::{
     frame::Frame,
     render_ctx::{RenderCtx, FIELD_OF_VIEW, HEIGHT, WIDTH},
+    utils::globals::Globals,
 };
 
 pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
@@ -209,12 +210,24 @@ fn render_meshes(ctx: &RenderCtx, current_frame: &Frame) {
         * Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.0, 1.0));
 
     unsafe {
-        ctx.mesh_collection.bind(
-            ctx,
+        ctx.globals_buffers.update(&Globals {
+            view_projection_matrix,
+            frustum_planes: Default::default(),
+            camera_pos: final_transform.position,
+            time: 0.0,
+        });
+
+        ctx.device_loader.cmd_bind_descriptor_sets(
             command_buffer,
-            &view_projection_matrix,
-            &final_transform.position,
-        )
+            vk::PipelineBindPoint::GRAPHICS,
+            ctx.geometry_pipeline_layout,
+            0,
+            &[
+                ctx.globals_buffers.descriptor_set,
+                ctx.mesh_collection.descriptor_set,
+            ],
+            &[],
+        );
     };
 
     unsafe {

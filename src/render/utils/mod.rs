@@ -1,3 +1,4 @@
+pub mod globals;
 pub mod pipelines;
 
 use std::slice;

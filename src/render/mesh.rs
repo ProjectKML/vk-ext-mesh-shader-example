@@ -12,16 +12,13 @@ use crate::{
     RenderCtx,
 };
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct Vertex {
     pub position: Vec3,
     pub tex_coord: Vec2,
     pub normal: Vec3,
 }
-
-unsafe impl Zeroable for Vertex {}
-unsafe impl Pod for Vertex {}
 
 impl Vertex {
     #[inline]
@@ -41,7 +38,7 @@ impl DecodePosition for Vertex {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct Meshlet {
     pub aabb: AABB,
@@ -49,9 +46,6 @@ pub struct Meshlet {
     pub vertex_count: u32,
     pub triangle_count: u32,
 }
-
-unsafe impl Zeroable for Meshlet {}
-unsafe impl Pod for Meshlet {}
 
 impl Meshlet {
     #[inline]
@@ -322,10 +316,9 @@ pub enum MeshSource {
 #[derive(Clone)]
 pub struct MeshCollection {
     mesh_buffers: Vec<MeshBuffers>,
-    constants_buffer: Buffer,
     _mesh_level_addresses: Buffer,
     _mesh_addresses: Buffer,
-    descriptor_set: vk::DescriptorSet,
+    pub descriptor_set: vk::DescriptorSet,
 }
 
 impl MeshCollection {
@@ -337,13 +330,6 @@ impl MeshCollection {
         descriptor_set_layout: vk::DescriptorSetLayout,
         sources: impl IntoIterator<Item = MeshSource>,
     ) -> Result<Self> {
-        let constants_buffer = Buffer::new_uniform(
-            device.clone(),
-            allocator,
-            mem::size_of::<Mat4>() + mem::size_of::<Vec3>(),
-        )
-        .unwrap();
-
         let mesh_buffers = sources
             .into_iter()
             .map(|source| MeshBuffers::new(device.clone(), queue, allocator, source))
@@ -391,67 +377,23 @@ impl MeshCollection {
         )?[0];
 
         //Update storage buffer
-        let uniform_buffer_info = vk::DescriptorBufferInfo::default()
-            .buffer(constants_buffer.buffer)
-            .range(constants_buffer.size);
-        let storage_buffer_info = vk::DescriptorBufferInfo::default()
+        let descriptor_buffer_info = vk::DescriptorBufferInfo::default()
             .buffer(mesh_addresses_buffer.buffer)
             .range(mesh_addresses_buffer.size);
 
-        let write_descriptor_sets = [
-            vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(slice::from_ref(&uniform_buffer_info)),
-            vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(slice::from_ref(&storage_buffer_info)),
-        ];
+        let write_descriptor_set = vk::WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(slice::from_ref(&descriptor_buffer_info));
 
-        device.update_descriptor_sets(&write_descriptor_sets, &[]);
+        device.update_descriptor_sets(slice::from_ref(&write_descriptor_set), &[]);
 
         Ok(Self {
-            constants_buffer,
             mesh_buffers,
             _mesh_level_addresses: mesh_level_addresses_buffer,
             _mesh_addresses: mesh_addresses_buffer,
             descriptor_set,
         })
-    }
-
-    pub unsafe fn bind(
-        &self,
-        ctx: &RenderCtx,
-        command_buffer: vk::CommandBuffer,
-        view_projection_matrix: &Mat4,
-        camera_pos: &Vec3,
-    ) {
-        #[repr(C)]
-        struct Constants {
-            view_projection_matrix: Mat4,
-            camera_pos: Vec3,
-        }
-
-        let constants = Constants {
-            view_projection_matrix: *view_projection_matrix,
-            camera_pos: *camera_pos,
-        };
-        libc::memcpy(
-            self.constants_buffer.allocation_info.mapped_data,
-            &constants as *const Constants as *const _,
-            mem::size_of::<Constants>(),
-        );
-
-        ctx.device_loader.cmd_bind_descriptor_sets(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            ctx.geometry_pipeline_layout,
-            0,
-            slice::from_ref(&self.descriptor_set),
-            &[],
-        );
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1,8 +1,10 @@
+use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 
 use crate::render::mesh::Vertex;
 
-#[derive(Copy, Clone, Debug, Default)]
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, Zeroable, Pod)]
 pub struct AABB {
     pub min: Vec3,
     pub max: Vec3,

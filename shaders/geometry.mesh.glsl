@@ -16,10 +16,12 @@ layout(location = 2) out vec3[] out_colors;
 
 layout(set = 0, binding = 0) uniform Constants {
 	mat4 view_projection_matrix;
-	vec3 camera_pos;
+    vec4 frustum_planes[6];
+    vec3 camera_pos;
+    float time;
 } constants;
 
-layout(set = 0, binding = 1) readonly buffer MeshBuffersBuffer {
+layout(set = 1, binding = 0) readonly buffer MeshBuffersBuffer {
     Mesh meshes[];
 };
 
@@ -58,7 +60,7 @@ void main() {
         const uint vertex_idx = meshlet_data[meshlet.data_offset + i].value;
         const Vertex vertex = mesh_level.vertices[vertex_idx].value;
 
-        gl_MeshVerticesEXT[i].gl_Position = calculate_pos(constants.view_projection_matrix, 
+        gl_MeshVerticesEXT[i].gl_Position = calculate_pos(constants.view_projection_matrix,
 			vec3(vertex.position_x, vertex.position_y, vertex.position_z), 
 			vec3(push_constants.translation_x, push_constants.translation_y, push_constants.translation_z), push_constants.scale, push_constants.rotation);
 
