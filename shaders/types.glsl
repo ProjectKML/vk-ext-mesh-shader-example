@@ -1,3 +1,10 @@
+struct Globals {
+    mat4 view_projection_matrix;
+    vec4 frustum_planes[6];
+    vec3 camera_pos;
+    float time;
+};
+
 struct Vertex {
     float position_x, position_y, position_z;
     float tex_coord_x, tex_coord_y;

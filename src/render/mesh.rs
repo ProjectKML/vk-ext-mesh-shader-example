@@ -439,7 +439,7 @@ impl MeshCollection {
 
         ctx.device_loader.cmd_push_constants(
             command_buffer,
-            ctx.geometry_pipeline_layout,
+            ctx.geometry_pass.pipeline_layout,
             vk::ShaderStageFlags::MESH_EXT,
             0,
             slice::from_raw_parts(
