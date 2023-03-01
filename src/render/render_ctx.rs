@@ -137,7 +137,7 @@ impl RenderCtx {
         let device_extensions = [Swapchain::name().as_ptr(), MeshShader::name().as_ptr()];
 
         let physical_device_features =
-            vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true);
+            vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true).shader_int64(true);
 
         let mut physical_device_vulkan_12_features =
             vk::PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
