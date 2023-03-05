@@ -38,10 +38,6 @@ layout(set = 0, binding = 2) readonly buffer MeshletData {
     uint[] meshlet_data;
 };
 
-layout(set = 0, binding = 2) readonly buffer ByteMeshletData {
-    uint8_t[] byte_meshlet_data;
-};
-
 uint murmur_hash_11(uint src) {
     const uint M = 0x5bd1e995;
     uint h = 1190494759;

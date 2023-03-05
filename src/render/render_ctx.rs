@@ -63,7 +63,13 @@ impl RenderCtx {
     pub fn new(window: &Window) -> Self {
         let mvk_dir = env::var("MVK_PATH").unwrap();
 
-        let entry_loader = unsafe { Entry::load_from(&mvk_dir) }.unwrap();
+        let entry_loader = unsafe {
+            if let Ok(mvk_path) = env::var("MVK_PATH") {
+                Entry::load_from(&mvk_path)
+            } else {
+                Entry::load()
+            }
+        }.unwrap();
 
         let application_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
 
