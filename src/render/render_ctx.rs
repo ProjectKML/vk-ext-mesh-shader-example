@@ -1,4 +1,4 @@
-use std::{mem, mem::ManuallyDrop, slice, sync::Arc};
+use std::{env, mem, mem::ManuallyDrop, slice, sync::Arc};
 
 use ash::{
     extensions::{
@@ -61,12 +61,9 @@ pub struct RenderCtx {
 
 impl RenderCtx {
     pub fn new(window: &Window) -> Self {
-        let entry_loader = unsafe {
-            Entry::load_from(
-                "/Users/lorenzklaus/Library/Caches/JetBrains/AppCode2022.3/DerivedData/MoltenVK-fgjezsauehkepybpfigattcpsncf/Build/Products/Release/dynamic/libMoltenVK.dylib"
-            )
-        }
-        .unwrap();
+        let mvk_dir = env::var("MVK_PATH").unwrap();
+
+        let entry_loader = unsafe { Entry::load_from(&mvk_dir) }.unwrap();
 
         let application_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
 
