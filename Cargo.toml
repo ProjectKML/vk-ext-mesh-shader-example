@@ -7,13 +7,15 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.63"
-ash = { git = "https://github.com/projectkml/ash", branch = "ext-mesh-shader" }
-ash-window = { git = "https://github.com/projectkml/ash", branch = "ext-mesh-shader" }
+ash = { git = "https://github.com/projectkml/ash" }
+ash-window = { git = "https://github.com/projectkml/ash" }
 bytemuck = "1.12.1"
-dolly = "0.3.1"
+dolly = "0.4.1"
 fast-obj = { git = "https://github.com/projectkml/fast-obj-rs" }
-glam = "0.21.3"
+glam = "0.22.0"
 libc = "0.2.132"
 meshopt = { git = "https://github.com/projectkml/meshopt-rs" }
+raw-window-handle = "0.5.0"
+shaderc = "0.8.2"
 vk-mem-alloc = { git = "https://github.com/projectkml/vk-mem-alloc-rs" }
-winit = "0.27.2"
+winit = "0.28.2"

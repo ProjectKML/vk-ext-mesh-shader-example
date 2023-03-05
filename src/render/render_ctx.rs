@@ -12,6 +12,8 @@ use dolly::{
     prelude::{CameraRig, Smooth, YawPitch}
 };
 use glam::{Mat4, Vec3};
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use shaderc::ShaderKind;
 use vk_mem_alloc::Allocation;
 use winit::window::Window;
 
@@ -59,14 +61,22 @@ pub struct RenderCtx {
 
 impl RenderCtx {
     pub fn new(window: &Window) -> Self {
-        let entry_loader = unsafe { Entry::load() }.unwrap();
+        let entry_loader = unsafe {
+            Entry::load_from(
+                "/Users/lorenzklaus/Library/Caches/JetBrains/AppCode2022.3/DerivedData/MoltenVK-fgjezsauehkepybpfigattcpsncf/Build/Products/Release/dynamic/libMoltenVK.dylib"
+            )
+        }
+        .unwrap();
 
         let application_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
 
-        let instance_layers = [b"VK_LAYER_KHRONOS_validation\0".as_ptr().cast()];
+        let instance_layers = [];
 
         let mut instance_extensions = vec![];
-        ash_window::enumerate_required_extensions(&window).unwrap().iter().for_each(|e| instance_extensions.push(*e));
+        ash_window::enumerate_required_extensions(window.raw_display_handle())
+            .unwrap()
+            .iter()
+            .for_each(|e| instance_extensions.push(*e));
 
         let instance_create_info = vk::InstanceCreateInfo::default()
             .enabled_layer_names(&instance_layers)
@@ -76,7 +86,7 @@ impl RenderCtx {
         let instance_loader = unsafe { entry_loader.create_instance(&instance_create_info, None) }.unwrap();
         let surface_loader = Surface::new(&entry_loader, &instance_loader);
 
-        let surface = unsafe { ash_window::create_surface(&entry_loader, &instance_loader, &window, None) }.unwrap();
+        let surface = unsafe { ash_window::create_surface(&entry_loader, &instance_loader, window.raw_display_handle(), window.raw_window_handle(), None) }.unwrap();
 
         let physical_devices = unsafe { instance_loader.enumerate_physical_devices() }.unwrap();
         let physical_device = physical_devices[0];
@@ -153,8 +163,8 @@ impl RenderCtx {
             .push_constant_ranges(slice::from_ref(&push_constant_range));
         let pipeline_layout = unsafe { device_loader.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap();
 
-        let mesh_shader = util::create_shader_module(&device_loader, "example.mesh.spv").unwrap();
-        let fragment_shader = util::create_shader_module(&device_loader, "example.frag.spv").unwrap();
+        let mesh_shader = util::create_shader_module(&device_loader, ShaderKind::Mesh, "main", "shaders/example.mesh.glsl", &[]).unwrap();
+        let fragment_shader = util::create_shader_module(&device_loader, ShaderKind::Fragment, "main", "shaders/example.frag.glsl", &[]).unwrap();
 
         let pipeline = unsafe { util::create_mesh_pipeline(&device_loader, mesh_shader, "main", fragment_shader, "main", SWAPCHAIN_FORMAT, DEPTH_FORMAT, pipeline_layout) }.unwrap();
 
