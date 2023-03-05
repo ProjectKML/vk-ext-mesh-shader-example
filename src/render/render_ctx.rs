@@ -61,8 +61,6 @@ pub struct RenderCtx {
 
 impl RenderCtx {
     pub fn new(window: &Window) -> Self {
-        let mvk_dir = env::var("MVK_PATH").unwrap();
-
         let entry_loader = unsafe {
             if let Ok(mvk_path) = env::var("MVK_PATH") {
                 Entry::load_from(&mvk_path)
