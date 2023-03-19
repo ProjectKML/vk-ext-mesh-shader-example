@@ -30,7 +30,7 @@ layout(push_constant) uniform PushConstants {
 } push_constants;
 
 uint get_index(MeshletDataRef meshlet_data, uint index_offset, uint index) {
-    const uint byte_offset = (3 - (index & 3)) << 3;
+    const uint byte_offset = ((index & 3)) << 3;
     return (meshlet_data[index_offset + (index >> 2)].value & (0xFF << byte_offset)) >> byte_offset;
 }
 

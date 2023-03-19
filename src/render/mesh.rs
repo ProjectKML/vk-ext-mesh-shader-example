@@ -196,27 +196,27 @@ impl Mesh {
                             for j in 0..num_packed_indices {
                                 let triangle_offset = j << 2;
                                 meshlet_data[index] = (meshlet.triangles[triangle_offset] as u32)
-                                    << 24
                                     | (meshlet
                                         .triangles
                                         .get(triangle_offset + 1)
                                         .copied()
                                         .unwrap_or_default()
                                         as u32)
-                                        << 16
+                                        << 8
                                     | (meshlet
                                         .triangles
                                         .get(triangle_offset + 2)
                                         .copied()
                                         .unwrap_or_default()
                                         as u32)
-                                        << 8
+                                        << 16
                                     | (meshlet
                                         .triangles
                                         .get(triangle_offset + 3)
                                         .copied()
                                         .unwrap_or_default()
-                                        as u32);
+                                        as u32)
+                                        << 24;
                                 index += 1;
                             }
 
