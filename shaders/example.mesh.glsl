@@ -38,6 +38,10 @@ layout(set = 0, binding = 2) readonly buffer MeshletData {
     uint[] meshlet_data;
 };
 
+layout(set = 0, binding = 2) readonly buffer MeshletDataByte {
+    uint8_t[] meshlet_data_bytes;
+};
+
 uint murmur_hash_11(uint src) {
     const uint M = 0x5bd1e995;
     uint h = 1190494759;
@@ -56,11 +60,6 @@ uint murmur_hash_11(uint src) {
 vec3 murmur_hash_11_color(uint src) {
     const uint hash = murmur_hash_11(src);
     return vec3(float((hash >> 16) & 0xFF), float((hash >> 8) & 0xFF), float(hash & 0xFF)) / 256.0;
-}
-
-uint get_index(uint index_offset, uint index) {
-    const uint byte_offset = (3 - (index & 3)) << 3;
-    return (meshlet_data[index_offset + (index >> 2)] & (0xFF << byte_offset)) >> byte_offset;
 }
 
 void main() {
@@ -83,10 +82,16 @@ void main() {
         out_colors[i] = meshlet_color;
     }
 
-    const uint index_offset = meshlet.data_offset + meshlet.vertex_count;
+    const uint index_offset = (meshlet.data_offset + meshlet.vertex_count) << 2;
 
     for(uint i = liid; i < meshlet.triangle_count; i += 32) {
-        const uint triangle_idx = 3 * i;
-        gl_PrimitiveTriangleIndicesEXT[i] = uvec3(get_index(index_offset, triangle_idx), get_index(index_offset,  triangle_idx + 1), get_index(index_offset, triangle_idx + 2));
+
+        const uint offset = index_offset + 3 * i;
+
+        const uint a = uint(meshlet_data_bytes[offset]);
+        const uint b = uint(meshlet_data_bytes[offset + 1]);
+        const uint c = uint(meshlet_data_bytes[offset + 2]);
+
+        gl_PrimitiveTriangleIndicesEXT[i] = uvec3(a, b, c);
     }
 }
