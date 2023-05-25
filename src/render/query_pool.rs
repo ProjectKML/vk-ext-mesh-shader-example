@@ -60,7 +60,7 @@ impl QueryPool {
 
     #[inline]
     pub unsafe fn get_results(&self) -> VkResult<HashMap<String, Duration>> {
-        let mut results = vec![0 as u64; self.query_count as usize];
+        let mut results = vec![0_u64; self.query_count as usize];
 
         self.device.get_query_pool_results(
             self.query_pool,

@@ -1,4 +1,4 @@
-use std::{mem, slice, sync::Arc};
+use std::{slice, sync::Arc};
 
 use anyhow::Result;
 use ash::{vk, Device};
@@ -54,7 +54,7 @@ impl Buffer {
         allocator: Allocator,
         data: &[T],
     ) -> Result<Self> {
-        let size = data.len() * mem::size_of::<T>();
+        let size = std::mem::size_of_val(data);
 
         let (staging_buffer, staging_buffer_allocation, staging_buffer_allocation_info) =
             vk_mem_alloc::create_buffer(

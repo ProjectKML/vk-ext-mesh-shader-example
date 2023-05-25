@@ -1,4 +1,4 @@
-use std::{mem, mem::ManuallyDrop, slice, sync::Arc};
+use std::{mem::ManuallyDrop, slice, sync::Arc};
 
 use ash::{
     extensions::{
@@ -11,14 +11,12 @@ use dolly::{
     drivers::Position,
     prelude::{CameraRig, Smooth, YawPitch},
 };
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Vec2, Vec3};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use shaderc::ShaderKind;
 use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
 use crate::render::{
-    buffer::Buffer,
     frame,
     frame::Frame,
     mesh::{MeshCollection, MeshSource, Vertex},
@@ -254,7 +252,6 @@ impl RenderCtx {
             InstanceCullPass::new(&device_loader, &globals_buffers, &geometry_pass);
 
         let frames: Vec<_> = (0..frame::NUM_FRAMES)
-            .into_iter()
             .map(|_| ManuallyDrop::new(Frame::new(device_loader.clone())))
             .collect();
 

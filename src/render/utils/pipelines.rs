@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs, fs::File, io::Read, mem, path::Path, slice};
+use std::{ffi::CString, fs, fs::File, io::Read, path::Path, slice};
 
 use anyhow::{anyhow, Result};
 use ash::{vk, Device};

@@ -3,7 +3,7 @@ use std::{mem, slice, sync::Arc};
 use anyhow::Result;
 use ash::{vk, Device};
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Quat, Vec2, Vec3};
+use glam::{Quat, Vec2, Vec3};
 use meshopt::{DecodePosition, VertexDataAdapter};
 use vk_mem_alloc::Allocator;
 
@@ -138,7 +138,6 @@ impl Mesh {
 
         Ok(Self {
             levels: (0..num_levels)
-                .into_iter()
                 .filter_map(|i| {
                     let (level_vertices, level_indices) = if i == 0 {
                         (vertices.clone(), indices.clone())

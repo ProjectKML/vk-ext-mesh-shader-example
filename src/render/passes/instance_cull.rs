@@ -33,7 +33,6 @@ impl InstanceCullPass {
     ) -> Self {
         //Create descriptor set layout
         let descriptor_set_layout_bindings = (0..4)
-            .into_iter()
             .map(|i| {
                 vk::DescriptorSetLayoutBinding::default()
                     .binding(i)
@@ -67,7 +66,7 @@ impl InstanceCullPass {
         //Create pipeline
         let pipeline = unsafe {
             utils::pipelines::create_compute(
-                &device,
+                device,
                 "shaders/instance_cull.comp.glsl",
                 "main",
                 &[],
@@ -84,7 +83,7 @@ impl InstanceCullPass {
         }
     }
 
-    pub fn execute(&self, ctx: &RenderCtx, command_buffer: vk::CommandBuffer) {
+    pub fn execute(&self, _ctx: &RenderCtx, _command_buffer: vk::CommandBuffer) {
         //TODO:
     }
 }

@@ -51,8 +51,10 @@ pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
         let render_semaphore = current_frame.render_semaphore;
 
         let fence = current_frame.fence;
-        unsafe { device_loader.wait_for_fences(slice::from_ref(&fence), true, u64::MAX) }.unwrap();
-        unsafe { device_loader.reset_fences(slice::from_ref(&fence)) }.unwrap();
+        device_loader
+            .wait_for_fences(slice::from_ref(&fence), true, u64::MAX)
+            .unwrap();
+        device_loader.reset_fences(slice::from_ref(&fence)).unwrap();
 
         let command_pool = current_frame.command_pool;
         let command_buffer = current_frame.command_buffer;
@@ -74,7 +76,7 @@ pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
             .unwrap();
 
         //Render frame
-        update_globals(&ctx);
+        update_globals(ctx);
 
         ctx.instance_cull_pass.execute(ctx, command_buffer);
         ctx.geometry_pass

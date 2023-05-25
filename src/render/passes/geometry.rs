@@ -9,7 +9,6 @@ use ash::{vk, Device};
 use glam::{Quat, Vec3, Vec4};
 
 use crate::render::{
-    frame::Frame,
     render_ctx::{RenderCtx, DEPTH_FORMAT, HEIGHT, SWAPCHAIN_FORMAT, WIDTH},
     utils,
     utils::globals::GlobalsBuffers,
@@ -75,7 +74,7 @@ impl GeometryPass {
                 .to_string();
 
             utils::pipelines::create_mesh(
-                &device,
+                device,
                 "shaders/geometry.mesh.glsl",
                 "main",
                 &[("LOCAL_SIZE_X", Some(&local_size_x))],
@@ -105,7 +104,7 @@ impl GeometryPass {
     ) {
         let device_loader = &ctx.device_loader;
 
-        let image = ctx.swapchain_images[image_index as usize];
+        let image = ctx.swapchain_images[image_index];
 
         //Transition image to COLOR_ATTACHMENT_OPTIMAL
         let image_memory_barrier = vk::ImageMemoryBarrier2::default()
@@ -130,7 +129,7 @@ impl GeometryPass {
 
         //Begin rendering
         let color_attachment = vk::RenderingAttachmentInfo::default()
-            .image_view(ctx.swapchain_image_views[image_index as usize])
+            .image_view(ctx.swapchain_image_views[image_index])
             .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
