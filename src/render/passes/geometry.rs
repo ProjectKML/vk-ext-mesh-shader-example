@@ -18,6 +18,8 @@ pub struct GeometryPass {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub pipeline_layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
+    pub pipeline_tri: vk::Pipeline,
+    pub triangle_view: bool,
     device: Arc<Device>,
 }
 
@@ -25,6 +27,7 @@ impl Drop for GeometryPass {
     #[inline]
     fn drop(&mut self) {
         unsafe {
+            self.device.destroy_pipeline(self.pipeline_tri, None);
             self.device.destroy_pipeline(self.pipeline, None);
             self.device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
@@ -68,12 +71,12 @@ impl GeometryPass {
             unsafe { device.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap();
 
         //Create pipeline
-        let pipeline = unsafe {
+        let (pipeline, pipeline_tri) = unsafe {
             let local_size_x = physical_device_mesh_shader_properties
                 .max_preferred_mesh_work_group_invocations
                 .to_string();
 
-            utils::pipelines::create_mesh(
+            (utils::pipelines::create_mesh(
                 device,
                 "shaders/geometry.mesh.glsl",
                 "main",
@@ -84,14 +87,28 @@ impl GeometryPass {
                 SWAPCHAIN_FORMAT,
                 DEPTH_FORMAT,
                 pipeline_layout,
+            ).unwrap(),
+                utils::pipelines::create_mesh(
+                    device,
+                    "shaders/geometry_tri.mesh.glsl",
+                    "main",
+                    &[("LOCAL_SIZE_X", Some(&local_size_x))],
+                    "shaders/geometry_tri.frag.glsl",
+                    "main",
+                    &[],
+                    SWAPCHAIN_FORMAT,
+                    DEPTH_FORMAT,
+                    pipeline_layout,
+                ).unwrap()
             )
-        }
-        .unwrap();
+        };
 
         Self {
             descriptor_set_layout,
             pipeline_layout,
             pipeline,
+            pipeline_tri,
+            triangle_view: false,
             device: device.clone(),
         }
     }
@@ -165,7 +182,7 @@ impl GeometryPass {
         ctx.device_loader.cmd_bind_pipeline(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
-            ctx.geometry_pass.pipeline,
+            if self.triangle_view { self.pipeline_tri } else { self.pipeline }
         );
 
         let viewport = vk::Viewport::default()

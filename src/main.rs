@@ -86,6 +86,10 @@ fn main() {
                                         running = false;
                                     }
 
+                                    else if key_code == VirtualKeyCode::T && input.state == ElementState::Pressed {
+                                        render_ctx.geometry_pass.triangle_view = !render_ctx.geometry_pass.triangle_view;
+                                    }
+
                                     match input.state {
                                         ElementState::Pressed => {
                                             if !pressed_keys.contains(&key_code) {
