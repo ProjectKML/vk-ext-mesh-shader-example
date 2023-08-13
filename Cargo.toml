@@ -16,6 +16,7 @@ fast-obj = { git = "https://github.com/projectkml/fast-obj-rs" }
 glam = { version = "0.24.1", features = ["bytemuck"] }
 libc = "0.2.135"
 meshopt = { git = "https://github.com/projectkml/meshopt-rs" }
+rand = "0.8.5"
 raw-window-handle = "0.5.0"
 shaderc = { git = "https://github.com/ProjectKML/shaderc-rs" }
 vk-mem-alloc = { git = "https://github.com/projectkml/vk-mem-alloc-rs" }

@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+mod mesh_builder;
+
 use dolly::{
     drivers::{Position, YawPitch},
     rig::CameraRig,
@@ -84,10 +86,11 @@ fn main() {
                                 if let Some(key_code) = input.virtual_keycode {
                                     if key_code == VirtualKeyCode::Escape {
                                         running = false;
-                                    }
-
-                                    else if key_code == VirtualKeyCode::T && input.state == ElementState::Pressed {
-                                        render_ctx.geometry_pass.triangle_view = !render_ctx.geometry_pass.triangle_view;
+                                    } else if key_code == VirtualKeyCode::T
+                                        && input.state == ElementState::Pressed
+                                    {
+                                        render_ctx.geometry_pass.triangle_view =
+                                            !render_ctx.geometry_pass.triangle_view;
                                     }
 
                                     match input.state {

@@ -76,18 +76,20 @@ impl GeometryPass {
                 .max_preferred_mesh_work_group_invocations
                 .to_string();
 
-            (utils::pipelines::create_mesh(
-                device,
-                "shaders/geometry.mesh.glsl",
-                "main",
-                &[("LOCAL_SIZE_X", Some(&local_size_x))],
-                "shaders/geometry.frag.glsl",
-                "main",
-                &[],
-                SWAPCHAIN_FORMAT,
-                DEPTH_FORMAT,
-                pipeline_layout,
-            ).unwrap(),
+            (
+                utils::pipelines::create_mesh(
+                    device,
+                    "shaders/geometry.mesh.glsl",
+                    "main",
+                    &[("LOCAL_SIZE_X", Some(&local_size_x))],
+                    "shaders/geometry.frag.glsl",
+                    "main",
+                    &[],
+                    SWAPCHAIN_FORMAT,
+                    DEPTH_FORMAT,
+                    pipeline_layout,
+                )
+                .unwrap(),
                 utils::pipelines::create_mesh(
                     device,
                     "shaders/geometry_tri.mesh.glsl",
@@ -99,7 +101,8 @@ impl GeometryPass {
                     SWAPCHAIN_FORMAT,
                     DEPTH_FORMAT,
                     pipeline_layout,
-                ).unwrap()
+                )
+                .unwrap(),
             )
         };
 
@@ -182,7 +185,11 @@ impl GeometryPass {
         ctx.device_loader.cmd_bind_pipeline(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
-            if self.triangle_view { self.pipeline_tri } else { self.pipeline }
+            if self.triangle_view {
+                self.pipeline_tri
+            } else {
+                self.pipeline
+            },
         );
 
         let viewport = vk::Viewport::default()
@@ -264,7 +271,7 @@ unsafe fn render_meshes(ctx: &RenderCtx, command_buffer: vk::CommandBuffer) {
                 (hash_code & 255) as f32 / 255.0 * std::f32::consts::PI
             };
 
-            let mesh_idx = ((i + j) % 3) + 1;
+            let mesh_idx = ((i + j) % 4) + 1;
             let (scale, y_offset) = if mesh_idx == 1 {
                 (1.0, -2.6)
             } else if mesh_idx == 2 {

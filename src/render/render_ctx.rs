@@ -1,4 +1,10 @@
-use std::{mem::ManuallyDrop, slice, sync::Arc};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    mem::ManuallyDrop,
+    slice,
+    sync::Arc,
+};
 
 use ash::{
     extensions::{
@@ -12,18 +18,22 @@ use dolly::{
     prelude::{CameraRig, Smooth, YawPitch},
 };
 use glam::{Vec2, Vec3};
+use rand::RngCore;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use vk_mem_alloc::{Allocation, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
-use crate::render::{
-    frame,
-    frame::Frame,
-    mesh::{MeshCollection, MeshSource, Vertex},
-    passes::{geometry::GeometryPass, instance_cull::InstanceCullPass},
-    query_pool::QueryPool,
-    utils,
-    utils::globals::GlobalsBuffers,
+use crate::{
+    mesh_builder::MeshBuilder,
+    render::{
+        frame,
+        frame::Frame,
+        mesh::{MeshCollection, MeshSource, Vertex},
+        passes::{geometry::GeometryPass, instance_cull::InstanceCullPass},
+        query_pool::QueryPool,
+        utils,
+        utils::globals::GlobalsBuffers,
+    },
 };
 
 pub const WIDTH: u32 = 1600;
@@ -298,6 +308,25 @@ impl RenderCtx {
                         MeshSource::Path("dragon.obj"),
                         MeshSource::Path("armadillo.obj"),
                         MeshSource::Path("bunny.obj"),
+                        MeshSource::Builder({
+                            let mut builder = MeshBuilder::new();
+
+                            for i in 0..50 {
+                                for j in 0..50 {
+                                    let a = (rand::thread_rng().next_u32() & 1023) as f32 / 1024.0;
+                                    let b = (rand::thread_rng().next_u32() & 1023) as f32 / 1024.0;
+                                    let scale =
+                                        (rand::thread_rng().next_u32() & 1023) as f32 / 1024.0;
+
+                                    let fi = 0.006 * 50.0 * a;
+                                    let fj = 0.006 * 50.0 * b;
+
+                                    builder.add_nano_mesh(&Vec3::new(fi, 0.042, fj), 1.0 + scale);
+                                }
+                            }
+
+                            builder
+                        }),
                     ],
                 )
             }

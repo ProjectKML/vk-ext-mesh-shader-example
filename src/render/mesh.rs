@@ -8,6 +8,7 @@ use meshopt::{DecodePosition, VertexDataAdapter};
 use vk_mem_alloc::Allocator;
 
 use crate::{
+    mesh_builder::MeshBuilder,
     render::{buffer::Buffer, mesh_util::AABB},
     RenderCtx,
 };
@@ -88,7 +89,7 @@ pub struct Mesh {
 
 impl Mesh {
     pub fn new(source: MeshSource) -> Result<Self> {
-        let (mut vertices, mut indices) = match source {
+        let (mut vertices, mut indices, num_levels) = match source {
             MeshSource::Path(path) => {
                 let mesh = fast_obj::Mesh::new(path)?;
 
@@ -125,16 +126,19 @@ impl Mesh {
                 (
                     meshopt::remap_vertex_buffer(&vertices, vertex_count, &remap),
                     meshopt::remap_index_buffer(None, indices.len(), &remap),
+                    12,
                 )
             }
-            MeshSource::Builtin(vertices, indices) => (vertices, indices),
+            MeshSource::Builtin(vertices, indices) => (vertices, indices, 12),
+            MeshSource::Builder(builder) => {
+                let (vertices, indices) = builder.build();
+                (vertices, indices, 1)
+            }
         };
 
         meshopt::optimize_vertex_cache_in_place(&mut indices, vertices.len());
         meshopt::optimize_overdraw_in_place_decoder(&mut indices, &vertices, 1.01);
         meshopt::optimize_vertex_fetch_in_place(&mut indices, &mut vertices);
-
-        let num_levels = 12;
 
         Ok(Self {
             levels: (0..num_levels)
@@ -310,6 +314,7 @@ impl MeshLevelBuffers {
 pub enum MeshSource {
     Path(&'static str),
     Builtin(Vec<Vertex>, Vec<u32>),
+    Builder(MeshBuilder),
 }
 
 #[derive(Clone)]
