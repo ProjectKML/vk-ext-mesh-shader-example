@@ -311,15 +311,15 @@ impl RenderCtx {
                         MeshSource::Builder({
                             let mut builder = MeshBuilder::new();
 
-                            for i in 0..50 {
-                                for j in 0..50 {
+                            for i in 0..100 {
+                                for j in 0..100 {
                                     let a = (rand::thread_rng().next_u32() & 1023) as f32 / 1024.0;
                                     let b = (rand::thread_rng().next_u32() & 1023) as f32 / 1024.0;
                                     let scale =
                                         (rand::thread_rng().next_u32() & 1023) as f32 / 1024.0;
 
-                                    let fi = 0.006 * 50.0 * a;
-                                    let fj = 0.006 * 50.0 * b;
+                                    let fi = 2.0 * 0.6 * a;
+                                    let fj = 2.0 * 0.6 * b;
 
                                     builder.add_nano_mesh(&Vec3::new(fi, 0.042, fj), 1.0 + scale);
                                 }
