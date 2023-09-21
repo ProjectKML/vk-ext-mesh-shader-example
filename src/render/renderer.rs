@@ -2,19 +2,20 @@ use std::slice;
 
 use ash::vk;
 use glam::{Mat4, Quat, Vec3};
+use winit::window::Window;
 
 use crate::render::{
-    render_ctx::{RenderCtx, FIELD_OF_VIEW, HEIGHT, WIDTH},
+    render_ctx::{RenderCtx, FIELD_OF_VIEW},
     utils::globals::Globals,
 };
 
-unsafe fn update_globals(ctx: &RenderCtx) {
+unsafe fn update_globals(ctx: &RenderCtx, window: &Window) {
     //Compute view projection matrix
     let final_transform = &ctx.camera_rig.final_transform;
 
     let mut projection_matrix = Mat4::perspective_lh(
         FIELD_OF_VIEW.to_radians(),
-        WIDTH as f32 / HEIGHT as f32,
+        window.inner_size().width as f32 / window.inner_size().height as f32,
         0.1,
         1000.0,
     );
@@ -36,7 +37,7 @@ unsafe fn update_globals(ctx: &RenderCtx) {
     })
 }
 
-pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
+pub fn render_frame(ctx: &RenderCtx, window: &Window, frame_index: &mut usize) {
     unsafe {
         //Begin frame
         let device_loader = &ctx.device_loader;
@@ -76,11 +77,11 @@ pub fn render_frame(ctx: &RenderCtx, frame_index: &mut usize) {
             .unwrap();
 
         //Render frame
-        update_globals(ctx);
+        update_globals(ctx, window);
 
         ctx.instance_cull_pass.execute(ctx, command_buffer);
         ctx.geometry_pass
-            .execute(ctx, command_buffer, image_index as usize);
+            .execute(ctx, command_buffer, image_index as usize, window);
 
         //End frame
         device_loader.end_command_buffer(command_buffer).unwrap();

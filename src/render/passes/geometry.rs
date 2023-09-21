@@ -7,9 +7,10 @@ use std::{
 
 use ash::{vk, Device};
 use glam::{Quat, Vec3, Vec4};
+use winit::window::Window;
 
 use crate::render::{
-    render_ctx::{RenderCtx, DEPTH_FORMAT, HEIGHT, SWAPCHAIN_FORMAT, WIDTH},
+    render_ctx::{RenderCtx, DEPTH_FORMAT, SWAPCHAIN_FORMAT},
     utils,
     utils::globals::GlobalsBuffers,
 };
@@ -76,18 +77,20 @@ impl GeometryPass {
                 .max_preferred_mesh_work_group_invocations
                 .to_string();
 
-            (utils::pipelines::create_mesh(
-                device,
-                "shaders/geometry.mesh.glsl",
-                "main",
-                &[("LOCAL_SIZE_X", Some(&local_size_x))],
-                "shaders/geometry.frag.glsl",
-                "main",
-                &[],
-                SWAPCHAIN_FORMAT,
-                DEPTH_FORMAT,
-                pipeline_layout,
-            ).unwrap(),
+            (
+                utils::pipelines::create_mesh(
+                    device,
+                    "shaders/geometry.mesh.glsl",
+                    "main",
+                    &[("LOCAL_SIZE_X", Some(&local_size_x))],
+                    "shaders/geometry.frag.glsl",
+                    "main",
+                    &[],
+                    SWAPCHAIN_FORMAT,
+                    DEPTH_FORMAT,
+                    pipeline_layout,
+                )
+                .unwrap(),
                 utils::pipelines::create_mesh(
                     device,
                     "shaders/geometry_tri.mesh.glsl",
@@ -99,7 +102,8 @@ impl GeometryPass {
                     SWAPCHAIN_FORMAT,
                     DEPTH_FORMAT,
                     pipeline_layout,
-                ).unwrap()
+                )
+                .unwrap(),
             )
         };
 
@@ -118,6 +122,7 @@ impl GeometryPass {
         ctx: &RenderCtx,
         command_buffer: vk::CommandBuffer,
         image_index: usize,
+        window: &Window,
     ) {
         let device_loader = &ctx.device_loader;
 
@@ -170,7 +175,11 @@ impl GeometryPass {
 
         let rendering_info = vk::RenderingInfo::default()
             .render_area(
-                vk::Rect2D::default().extent(vk::Extent2D::default().width(WIDTH).height(HEIGHT)),
+                vk::Rect2D::default().extent(
+                    vk::Extent2D::default()
+                        .width(window.inner_size().width)
+                        .height(window.inner_size().height),
+                ),
             )
             .layer_count(1)
             .color_attachments(slice::from_ref(&color_attachment))
@@ -182,16 +191,20 @@ impl GeometryPass {
         ctx.device_loader.cmd_bind_pipeline(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
-            if self.triangle_view { self.pipeline_tri } else { self.pipeline }
+            if self.triangle_view {
+                self.pipeline_tri
+            } else {
+                self.pipeline
+            },
         );
 
         let viewport = vk::Viewport::default()
-            .width(WIDTH as _)
-            .height(HEIGHT as _)
+            .width(window.inner_size().width as _)
+            .height(window.inner_size().height as _)
             .max_depth(1.0);
         let scissor = vk::Rect2D::default().extent(vk::Extent2D {
-            width: WIDTH,
-            height: HEIGHT,
+            width: window.inner_size().width as _,
+            height: window.inner_size().height as _,
         });
 
         ctx.device_loader

@@ -6,7 +6,7 @@ use dolly::{
 };
 use glam::Vec3;
 use winit::{
-    dpi::{PhysicalSize, Size},
+    dpi::{LogicalSize, PhysicalSize, Size},
     event::{DeviceEvent, ElementState, Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     platform::run_return::EventLoopExtRunReturn,
@@ -54,7 +54,7 @@ fn main() {
     let mut event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("vk-ext-mesh-shader-example")
-        .with_inner_size(Size::Physical(PhysicalSize::new(1600, 900)))
+        .with_inner_size(Size::Logical(LogicalSize::new(1600.0, 900.0)))
         .build(&event_loop)
         .unwrap();
 
@@ -84,10 +84,11 @@ fn main() {
                                 if let Some(key_code) = input.virtual_keycode {
                                     if key_code == VirtualKeyCode::Escape {
                                         running = false;
-                                    }
-
-                                    else if key_code == VirtualKeyCode::T && input.state == ElementState::Pressed {
-                                        render_ctx.geometry_pass.triangle_view = !render_ctx.geometry_pass.triangle_view;
+                                    } else if key_code == VirtualKeyCode::T
+                                        && input.state == ElementState::Pressed
+                                    {
+                                        render_ctx.geometry_pass.triangle_view =
+                                            !render_ctx.geometry_pass.triangle_view;
                                     }
 
                                     match input.state {
@@ -126,7 +127,7 @@ fn main() {
 
         update_camera_rig(&pressed_keys, &mut render_ctx.camera_rig, delta_time);
 
-        renderer::render_frame(&mut render_ctx, &mut frame_index);
+        renderer::render_frame(&mut render_ctx, &window, &mut frame_index);
 
         frame_count += 1;
         frame_index = frame_count % render_ctx.frames.len();

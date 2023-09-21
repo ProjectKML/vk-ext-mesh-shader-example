@@ -25,9 +25,6 @@ use crate::render::{
     utils,
     utils::globals::GlobalsBuffers,
 };
-
-pub const WIDTH: u32 = 1600;
-pub const HEIGHT: u32 = 900;
 pub const SWAPCHAIN_FORMAT: vk::Format = vk::Format::B8G8R8A8_UNORM;
 pub const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 pub const FIELD_OF_VIEW: f32 = 90.0;
@@ -185,8 +182,8 @@ impl RenderCtx {
             .image_format(SWAPCHAIN_FORMAT)
             .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
             .image_extent(vk::Extent2D {
-                width: WIDTH,
-                height: HEIGHT,
+                width: window.inner_size().width as _,
+                height: window.inner_size().height as _,
             })
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
@@ -224,8 +221,8 @@ impl RenderCtx {
                 &device_loader,
                 direct_queue,
                 allocator,
-                WIDTH,
-                HEIGHT,
+                window.inner_size().width as _,
+                window.inner_size().height as _,
                 DEPTH_FORMAT,
             )
         }
