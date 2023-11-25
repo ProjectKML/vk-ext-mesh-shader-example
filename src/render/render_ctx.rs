@@ -95,7 +95,7 @@ impl RenderCtx {
         let queue_priority = 1.0;
         let device_queue_create_info = vk::DeviceQueueCreateInfo::default().queue_priorities(slice::from_ref(&queue_priority));
 
-        let device_extensions = [Swapchain::name().as_ptr(), DynamicRendering::name().as_ptr(), MeshShader::name().as_ptr()];
+        let device_extensions = [Swapchain::NAME.as_ptr(), DynamicRendering::NAME.as_ptr(), MeshShader::NAME.as_ptr()];
 
         let physical_device_features = vk::PhysicalDeviceFeatures::default();
 
